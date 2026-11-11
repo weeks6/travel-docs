@@ -13,8 +13,8 @@ func GetUrl(method string, url string) string {
 	return fmt.Sprintf("%v /%v%v", method, prefix, url)
 }
 
-func RegisterHandlers() {
-	http.HandleFunc(GetUrl("POST", "/token"), func(w http.ResponseWriter, r *http.Request) {
+func RegisterHandlers(mux *http.ServeMux) {
+	mux.HandleFunc(GetUrl("POST", "/token"), func(w http.ResponseWriter, r *http.Request) {
 
 		token, err := createJWTToken(UserPayload{UserId: "test_user"})
 
@@ -30,7 +30,7 @@ func RegisterHandlers() {
 		fmt.Fprintln(w, token)
 	})
 
-	http.HandleFunc(GetUrl("POST", "/logout"), func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc(GetUrl("POST", "/logout"), func(w http.ResponseWriter, r *http.Request) {
 		auth_header := r.Header.Get("Authorization")
 		token := strings.Split(auth_header, " ")[1]
 

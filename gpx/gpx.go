@@ -90,7 +90,11 @@ func Parse(r io.Reader) (*File, error) {
 	dec := xml.NewDecoder(r)
 	if err := dec.Decode(&doc); err != nil {
 		if errors.Is(err, io.EOF) {
-			return nil, invalid("file is empty")
+			return nil, invalid("no XML document found")
+		}
+		var ue xml.UnmarshalError
+		if errors.As(err, &ue) && strings.HasPrefix(string(ue), "expected element type <gpx>") {
+			return nil, invalid("root element must be <gpx>")
 		}
 		return nil, invalid("malformed XML: %v", err)
 	}
