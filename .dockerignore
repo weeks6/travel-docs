@@ -1,0 +1,7 @@
+.git
+.github
+tmp
+*.pem
+docker-compose.yml
+Dockerfile
+README.md

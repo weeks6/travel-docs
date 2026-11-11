@@ -212,3 +212,45 @@ func (f *File) StartTime() (time.Time, bool) {
 	}
 	return time.Time{}, false
 }
+
+// FillElevation fills in missing elevations by linear interpolation between
+// the nearest known points (copying the nearest value at the ends), treating
+// all segments as one sequence. It reports whether the file has any
+// elevation data; if not, nothing is changed.
+func (f *File) FillElevation() bool {
+	type ref struct{ seg, pt int }
+	var all []ref
+	for si, s := range f.Segments {
+		for pi := range s {
+			all = append(all, ref{si, pi})
+		}
+	}
+	at := func(i int) *Point { return &f.Segments[all[i].seg][all[i].pt] }
+
+	prev := -1 // index of the last point with elevation
+	for i := range all {
+		if !at(i).HasEle {
+			continue
+		}
+		start := prev + 1
+		for j := start; j < i; j++ {
+			p := at(j)
+			if prev < 0 {
+				p.Ele = at(i).Ele
+			} else {
+				t := float64(j-prev) / float64(i-prev)
+				p.Ele = at(prev).Ele + t*(at(i).Ele-at(prev).Ele)
+			}
+			p.HasEle = true
+		}
+		prev = i
+	}
+	if prev < 0 {
+		return false
+	}
+	for j := prev + 1; j < len(all); j++ {
+		p := at(j)
+		p.Ele, p.HasEle = at(prev).Ele, true
+	}
+	return true
+}

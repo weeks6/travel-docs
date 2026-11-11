@@ -115,3 +115,28 @@ func TestParseInvalid(t *testing.T) {
 		})
 	}
 }
+
+func TestFillElevation(t *testing.T) {
+	e := func(v float64) Point { return Point{Ele: v, HasEle: true} }
+	none := Point{}
+	f := &File{Segments: []Segment{
+		{none, e(100), none, none, e(130)},
+		{none, e(200), none},
+	}}
+	if !f.FillElevation() {
+		t.Fatal("expected elevation")
+	}
+	want := [][]float64{{100, 100, 110, 120, 130}, {165, 200, 200}}
+	for si, seg := range f.Segments {
+		for pi, p := range seg {
+			if !p.HasEle || p.Ele != want[si][pi] {
+				t.Errorf("segment %d point %d = %+v, want ele %v", si, pi, p, want[si][pi])
+			}
+		}
+	}
+
+	flat := &File{Segments: []Segment{{none, none}}}
+	if flat.FillElevation() || flat.Segments[0][0].HasEle {
+		t.Error("file without elevation must stay unchanged")
+	}
+}

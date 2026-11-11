@@ -1,191 +1,192 @@
-// Package routes implements GPX route upload, storage and retrieval.
+// Package routes implements GPX route upload, storage, editing, version
+// history and sharing.
 package routes
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
-	"log"
+	"io"
+	"mime"
 	"net/http"
-	"path/filepath"
+	"net/url"
 	"strconv"
 	"strings"
 	"uuid"
 
+	"github.com/labstack/echo/v5"
+	"github.com/labstack/echo/v5/middleware"
+	"github.com/weeks6/travel-docs/apperr"
 	"github.com/weeks6/travel-docs/gpx"
-	"github.com/weeks6/travel-docs/routestats"
+	"github.com/weeks6/travel-docs/services/auth"
 )
 
 const (
-	// MaxUploadBytes limits the size of an upload request.
-	MaxUploadBytes  = 20 << 20
+	// MaxUploadSize limits GPX uploads and GeoJSON edits, in bytes.
+	MaxUploadSize   = 20 << 20
+	maxJSONSize     = 64 << 10
 	DefaultPageSize = 20
 	MaxPageSize     = 100
-	maxNameLength   = 200
 )
 
 // Handler serves the /routes API.
 type Handler struct {
-	Store Store
+	Store *Store
 }
 
-// Register adds the route endpoints to mux.
-func (h *Handler) Register(mux *http.ServeMux) {
-	mux.HandleFunc("POST /routes", h.upload)
-	mux.HandleFunc("GET /routes", h.list)
-	mux.HandleFunc("GET /routes/{id}", h.get)
-	mux.HandleFunc("GET /routes/{id}/geometry", h.geometry)
-	mux.HandleFunc("GET /routes/{id}/elevation", h.elevation)
-	mux.HandleFunc("DELETE /routes/{id}", h.delete)
+// Register adds the route endpoints.
+func (h *Handler) Register(e *echo.Echo) {
+	upload := middleware.BodyLimit(MaxUploadSize)
+	small := middleware.BodyLimit(maxJSONSize)
+
+	g := e.Group("/routes")
+	g.POST("", h.upload, upload)
+	g.GET("", h.list)
+	g.GET("/:id", h.get)
+	g.PATCH("/:id", h.update, small)
+	g.DELETE("/:id", h.delete)
+	g.GET("/:id/geometry", h.geometry)
+	g.PUT("/:id/geometry", h.replaceGeometry, upload)
+	g.GET("/:id/elevation", h.elevation)
+	g.GET("/:id/versions", h.versions)
+	g.GET("/:id/versions/:version/geometry", h.versionGeometry)
+	g.POST("/:id/versions/:version/restore", h.restore)
+	g.GET("/:id/shares", h.shares)
+	g.PUT("/:id/shares", h.putShare, small)
+	g.DELETE("/:id/shares/:user_id", h.deleteShare)
 }
 
 // upload accepts multipart/form-data with a "file" field (the GPX file) and
-// an optional "name" field that overrides the name from the file.
-func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, MaxUploadBytes)
-	if err := r.ParseMultipartForm(8 << 20); err != nil {
-		var tooBig *http.MaxBytesError
-		if errors.As(err, &tooBig) {
-			writeError(w, http.StatusRequestEntityTooLarge,
-				fmt.Sprintf("upload is larger than %d MB", MaxUploadBytes>>20))
-			return
-		}
-		writeError(w, http.StatusBadRequest, "expected multipart/form-data with a \"file\" field")
-		return
-	}
-	defer r.MultipartForm.RemoveAll()
-
-	file, header, err := r.FormFile("file")
+// optional "name" and "visibility" (private by default) fields.
+func (h *Handler) upload(c *echo.Context) error {
+	actor, err := auth.RequireUser(c.Request().Context())
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "missing \"file\" field")
-		return
+		return err
+	}
+	f, filename, err := readGPXUpload(c)
+	if err != nil {
+		return err
+	}
+	content, err := BuildContent(f, filename, c.FormValue("name"))
+	if err != nil {
+		return err
+	}
+	visibility := c.FormValue("visibility")
+	if visibility == "" {
+		visibility = VisibilityPrivate
+	}
+	route, err := h.Store.Create(c.Request().Context(), actor, content, visibility)
+	if err != nil {
+		return err
+	}
+	c.Response().Header().Set(echo.HeaderLocation, "/routes/"+route.ID)
+	return writeRoute(c, http.StatusCreated, route)
+}
+
+// readGPXUpload parses the multipart "file" field as GPX.
+func readGPXUpload(c *echo.Context) (*gpx.File, string, error) {
+	header, err := c.FormFile("file")
+	if err != nil {
+		if echo.StatusCode(err) != 0 {
+			return nil, "", err // e.g. body over the size limit (413)
+		}
+		return nil, "", apperr.New(apperr.Invalid, `expected multipart/form-data with a "file" field`)
+	}
+	file, err := header.Open()
+	if err != nil {
+		return nil, "", err
 	}
 	defer file.Close()
 
-	parsed, err := gpx.Parse(file)
+	f, err := gpx.Parse(file)
 	if err != nil {
 		if gpx.IsValidationError(err) {
-			writeError(w, http.StatusUnprocessableEntity, err.Error())
-			return
+			return nil, "", apperr.New(apperr.Unprocessable, err.Error())
 		}
-		writeError(w, http.StatusBadRequest, "could not read upload")
-		return
+		return nil, "", apperr.New(apperr.Invalid, "could not read upload")
 	}
-
-	newRoute, err := BuildRoute(parsed, header.Filename, r.FormValue("name"))
-	if err != nil {
-		h.internalError(w, "build route", err)
-		return
-	}
-
-	created, err := h.Store.Create(r.Context(), newRoute)
-	if err != nil {
-		h.internalError(w, "create route", err)
-		return
-	}
-	w.Header().Set("Location", "/routes/"+created.ID)
-	writeJSON(w, http.StatusCreated, created)
+	return f, header.Filename, nil
 }
 
-// BuildRoute turns a parsed GPX file into a route ready to be stored.
-// The name is taken from nameOverride, then the GPX file, then the file name.
-func BuildRoute(f *gpx.File, filename, nameOverride string) (NewRoute, error) {
-	stats := routestats.Compute(f.Segments)
-
-	lines := make([][][2]float64, 0, len(f.Segments))
-	for _, seg := range f.Segments {
-		line := make([][2]float64, len(seg))
-		for i, p := range seg {
-			line[i] = [2]float64{p.Lon, p.Lat}
-		}
-		lines = append(lines, line)
-	}
-	geom, err := json.Marshal(map[string]any{"type": "MultiLineString", "coordinates": lines})
+func (h *Handler) list(c *echo.Context) error {
+	actor := auth.UserID(c.Request().Context())
+	params, err := ParseListParams(c.QueryParams(), actor != "")
 	if err != nil {
-		return NewRoute{}, err
+		return err
 	}
-
-	filename = filepath.Base(filename)
-	name := strings.TrimSpace(nameOverride)
-	if name == "" {
-		name = f.Name
+	res, err := h.Store.List(c.Request().Context(), actor, params)
+	if err != nil {
+		return err
 	}
-	if name == "" {
-		name = strings.TrimSuffix(filename, filepath.Ext(filename))
-	}
-	if name == "" || name == "." {
-		name = "Untitled route"
-	}
-	name = truncate(name, maxNameLength)
-
-	nr := NewRoute{
-		Route: Route{
-			ID:               uuid.NewV7().String(),
-			Name:             name,
-			Description:      f.Description,
-			OriginalFilename: filename,
-			DistanceM:        stats.DistanceM,
-			AscentM:          stats.AscentM,
-			DescentM:         stats.DescentM,
-			MinElevationM:    stats.MinElevationM,
-			MaxElevationM:    stats.MaxElevationM,
-			PointCount:       f.PointCount(),
-		},
-		Geometry: geom,
-		Profile:  stats.Profile,
-	}
-	if t, ok := f.StartTime(); ok {
-		t = t.UTC()
-		nr.StartedAt = &t
-	}
-	return nr, nil
+	return c.JSON(http.StatusOK, res)
 }
 
-func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
-	params, err := ParseListParams(r)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	res, err := h.Store.List(r.Context(), params)
-	if err != nil {
-		h.internalError(w, "list routes", err)
-		return
-	}
-	writeJSON(w, http.StatusOK, res)
-}
-
-// ParseListParams reads pagination, filter and sort options from the query string:
+// ParseListParams reads pagination, filter and sort options:
 //
-//	page, page_size, name, min_distance_m, max_distance_m, min_ascent_m,
-//	max_ascent_m, bbox=minLon,minLat,maxLon,maxLat,
-//	sort=created_at|name|distance|ascent, order=asc|desc
-func ParseListParams(r *http.Request) (ListParams, error) {
-	q := r.URL.Query()
+//	page, page_size, scope=mine|shared|public|all, collection_id, name,
+//	min_distance_m, max_distance_m, min_ascent_m, max_ascent_m,
+//	bbox=minLon,minLat,maxLon,maxLat,
+//	sort=created_at|updated_at|name|distance|ascent, order=asc|desc
+//
+// The default scope is "mine" for logged-in users and "public" otherwise,
+// or "all" when listing a collection.
+func ParseListParams(q url.Values, loggedIn bool) (ListParams, error) {
 	p := ListParams{Page: 1, PageSize: DefaultPageSize, Sort: SortCreatedAt, Desc: true}
+	bad := func(msg string) (ListParams, error) { return p, apperr.New(apperr.Invalid, msg) }
 
-	var err error
-	if p.Page, err = intParam(q.Get("page"), 1); err != nil || p.Page < 1 {
-		return p, errors.New("page must be a positive integer")
+	if v := q.Get("page"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 {
+			return bad("page must be a positive integer")
+		}
+		p.Page = n
 	}
-	if p.PageSize, err = intParam(q.Get("page_size"), DefaultPageSize); err != nil || p.PageSize < 1 || p.PageSize > MaxPageSize {
-		return p, fmt.Errorf("page_size must be between 1 and %d", MaxPageSize)
+	if v := q.Get("page_size"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > MaxPageSize {
+			return bad(fmt.Sprintf("page_size must be between 1 and %d", MaxPageSize))
+		}
+		p.PageSize = n
+	}
+
+	if v := q.Get("collection_id"); v != "" {
+		id, err := uuid.Parse(v)
+		if err != nil {
+			return bad("collection_id must be a UUID")
+		}
+		p.CollectionID = id.String()
+	}
+	switch s := Scope(q.Get("scope")); s {
+	case "":
+		switch {
+		case p.CollectionID != "":
+			p.Scope = ScopeAll
+		case loggedIn:
+			p.Scope = ScopeMine
+		default:
+			p.Scope = ScopePublic
+		}
+	case ScopeMine, ScopeShared, ScopePublic, ScopeAll:
+		p.Scope = s
+	default:
+		return bad("scope must be one of mine, shared, public, all")
 	}
 
 	p.Name = strings.TrimSpace(q.Get("name"))
-
-	for key, dst := range map[string]**float64{
-		"min_distance_m": &p.MinDistanceM,
-		"max_distance_m": &p.MaxDistanceM,
-		"min_ascent_m":   &p.MinAscentM,
-		"max_ascent_m":   &p.MaxAscentM,
+	for _, f := range []struct {
+		key string
+		dst **float64
+	}{
+		{"min_distance_m", &p.MinDistanceM},
+		{"max_distance_m", &p.MaxDistanceM},
+		{"min_ascent_m", &p.MinAscentM},
+		{"max_ascent_m", &p.MaxAscentM},
 	} {
-		if v := q.Get(key); v != "" {
-			f, err := strconv.ParseFloat(v, 64)
-			if err != nil || f < 0 {
-				return p, fmt.Errorf("%s must be a non-negative number", key)
+		if v := q.Get(f.key); v != "" {
+			n, err := strconv.ParseFloat(v, 64)
+			if err != nil || n < 0 {
+				return bad(f.key + " must be a non-negative number")
 			}
-			*dst = &f
+			*f.dst = &n
 		}
 	}
 
@@ -199,10 +200,10 @@ func ParseListParams(r *http.Request) (ListParams, error) {
 
 	if v := q.Get("sort"); v != "" {
 		switch s := SortField(v); s {
-		case SortCreatedAt, SortName, SortDistance, SortAscent:
+		case SortCreatedAt, SortUpdatedAt, SortName, SortDistance, SortAscent:
 			p.Sort = s
 		default:
-			return p, errors.New("sort must be one of created_at, name, distance, ascent")
+			return bad("sort must be one of created_at, updated_at, name, distance, ascent")
 		}
 	}
 	switch q.Get("order") {
@@ -211,13 +212,13 @@ func ParseListParams(r *http.Request) (ListParams, error) {
 	case "asc":
 		p.Desc = false
 	default:
-		return p, errors.New("order must be asc or desc")
+		return bad("order must be asc or desc")
 	}
 	return p, nil
 }
 
 func parseBBox(v string) (BBox, error) {
-	errBBox := errors.New("bbox must be minLon,minLat,maxLon,maxLat")
+	errBBox := apperr.New(apperr.Invalid, "bbox must be minLon,minLat,maxLon,maxLat")
 	parts := strings.Split(v, ",")
 	if len(parts) != 4 {
 		return BBox{}, errBBox
@@ -238,123 +239,286 @@ func parseBBox(v string) (BBox, error) {
 	return b, nil
 }
 
-func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r)
-	if !ok {
-		return
+func (h *Handler) get(c *echo.Context) error {
+	id, err := routeID(c)
+	if err != nil {
+		return err
 	}
-	route, err := h.Store.Get(r.Context(), id)
-	if h.storeError(w, "get route", err) {
-		return
+	route, err := h.Store.Get(c.Request().Context(), auth.UserID(c.Request().Context()), id)
+	if err != nil {
+		return err
 	}
-	writeJSON(w, http.StatusOK, route)
+	return writeRoute(c, http.StatusOK, route)
+}
+
+// update applies a JSON MetadataUpdate. Send If-Match with the version from
+// the ETag to avoid overwriting someone else's change.
+func (h *Handler) update(c *echo.Context) error {
+	actor, id, ifVersion, err := editRequest(c)
+	if err != nil {
+		return err
+	}
+	var upd MetadataUpdate
+	if err := echo.BindBody(c, &upd); err != nil {
+		return err
+	}
+	route, err := h.Store.UpdateMetadata(c.Request().Context(), actor, id, upd, ifVersion)
+	if err != nil {
+		return err
+	}
+	return writeRoute(c, http.StatusOK, route)
+}
+
+// replaceGeometry accepts either a new GPX file (multipart/form-data, field
+// "file") or GeoJSON (application/json or application/geo+json).
+func (h *Handler) replaceGeometry(c *echo.Context) error {
+	actor, id, ifVersion, err := editRequest(c)
+	if err != nil {
+		return err
+	}
+	ctx := c.Request().Context()
+	// Check access before reading a potentially large body.
+	if _, err := h.Store.Get(ctx, actor, id); err != nil {
+		return err
+	}
+
+	mediaType, _, _ := mime.ParseMediaType(c.Request().Header.Get(echo.HeaderContentType))
+	var f *gpx.File
+	var filename string
+	geoJSON := false
+	switch mediaType {
+	case echo.MIMEMultipartForm:
+		if f, filename, err = readGPXUpload(c); err != nil {
+			return err
+		}
+	case echo.MIMEApplicationJSON, "application/geo+json":
+		body, err := io.ReadAll(c.Request().Body)
+		if err != nil {
+			return err // over the size limit
+		}
+		if f, err = ParseGeoJSON(body); err != nil {
+			return err
+		}
+		geoJSON = true
+	default:
+		return apperr.New(apperr.Invalid, "send a GPX file as multipart/form-data or GeoJSON as application/geo+json")
+	}
+
+	content, err := BuildContent(f, filename, "")
+	if err != nil {
+		return err
+	}
+	route, err := h.Store.ReplaceGeometry(ctx, actor, id, content, geoJSON, ifVersion)
+	if err != nil {
+		return err
+	}
+	return writeRoute(c, http.StatusOK, route)
+}
+
+func (h *Handler) delete(c *echo.Context) error {
+	actor, err := auth.RequireUser(c.Request().Context())
+	if err != nil {
+		return err
+	}
+	id, err := routeID(c)
+	if err != nil {
+		return err
+	}
+	if err := h.Store.Delete(c.Request().Context(), actor, id); err != nil {
+		return err
+	}
+	return c.NoContent(http.StatusNoContent)
 }
 
 // geometry returns the route as a GeoJSON Feature, ready for map libraries.
-func (h *Handler) geometry(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r)
-	if !ok {
-		return
+func (h *Handler) geometry(c *echo.Context) error {
+	id, err := routeID(c)
+	if err != nil {
+		return err
 	}
-	route, err := h.Store.Get(r.Context(), id)
-	if h.storeError(w, "get route", err) {
-		return
+	ctx := c.Request().Context()
+	actor := auth.UserID(ctx)
+	route, err := h.Store.Get(ctx, actor, id)
+	if err != nil {
+		return err
 	}
-	geom, err := h.Store.Geometry(r.Context(), id)
-	if h.storeError(w, "get geometry", err) {
-		return
+	geom, err := h.Store.Geometry(ctx, actor, id)
+	if err != nil {
+		return err
 	}
-	w.Header().Set("Content-Type", "application/geo+json")
-	writeJSONBody(w, http.StatusOK, map[string]any{
-		"type":     "Feature",
-		"geometry": geom,
-		"properties": map[string]any{
-			"id":         route.ID,
-			"name":       route.Name,
-			"distance_m": route.DistanceM,
-		},
+	return writeFeature(c, geom, map[string]any{
+		"id": route.ID, "name": route.Name, "version": route.Version, "distance_m": route.DistanceM,
 	})
 }
 
-func (h *Handler) elevation(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r)
-	if !ok {
-		return
-	}
-	profile, err := h.Store.ElevationProfile(r.Context(), id)
-	if h.storeError(w, "get elevation profile", err) {
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"points": profile})
-}
-
-func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r)
-	if !ok {
-		return
-	}
-	if h.storeError(w, "delete route", h.Store.Delete(r.Context(), id)) {
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-// pathID validates the {id} path value. Malformed IDs are reported as 404
-// so they never reach the database.
-func pathID(w http.ResponseWriter, r *http.Request) (string, bool) {
-	id, err := uuid.Parse(r.PathValue("id"))
+func (h *Handler) elevation(c *echo.Context) error {
+	id, err := routeID(c)
 	if err != nil {
-		writeError(w, http.StatusNotFound, ErrNotFound.Error())
-		return "", false
+		return err
 	}
-	return id.String(), true
-}
-
-// storeError writes an error response if err is non-nil and reports whether it did.
-func (h *Handler) storeError(w http.ResponseWriter, op string, err error) bool {
-	switch {
-	case err == nil:
-		return false
-	case errors.Is(err, ErrNotFound):
-		writeError(w, http.StatusNotFound, err.Error())
-	default:
-		h.internalError(w, op, err)
+	profile, err := h.Store.ElevationProfile(c.Request().Context(), auth.UserID(c.Request().Context()), id)
+	if err != nil {
+		return err
 	}
-	return true
+	return c.JSON(http.StatusOK, map[string]any{"points": profile})
 }
 
-func (h *Handler) internalError(w http.ResponseWriter, op string, err error) {
-	log.Printf("routes: %s: %v", op, err)
-	writeError(w, http.StatusInternalServerError, "internal server error")
-}
-
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	writeJSONBody(w, status, v)
-}
-
-func writeJSONBody(w http.ResponseWriter, status int, v any) {
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(v); err != nil {
-		log.Printf("routes: write response: %v", err)
+func (h *Handler) versions(c *echo.Context) error {
+	id, err := routeID(c)
+	if err != nil {
+		return err
 	}
-}
-
-func writeError(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg})
-}
-
-func intParam(v string, def int) (int, error) {
-	if v == "" {
-		return def, nil
+	versions, err := h.Store.Versions(c.Request().Context(), auth.UserID(c.Request().Context()), id)
+	if err != nil {
+		return err
 	}
-	return strconv.Atoi(v)
+	return c.JSON(http.StatusOK, map[string]any{"items": versions})
 }
 
-func truncate(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
+func (h *Handler) versionGeometry(c *echo.Context) error {
+	id, err := routeID(c)
+	if err != nil {
+		return err
 	}
-	return string(r[:n])
+	version, err := versionParam(c)
+	if err != nil {
+		return err
+	}
+	geom, err := h.Store.VersionGeometry(c.Request().Context(), auth.UserID(c.Request().Context()), id, version)
+	if err != nil {
+		return err
+	}
+	return writeFeature(c, geom, map[string]any{"id": id, "version": version})
+}
+
+func (h *Handler) restore(c *echo.Context) error {
+	actor, id, ifVersion, err := editRequest(c)
+	if err != nil {
+		return err
+	}
+	version, err := versionParam(c)
+	if err != nil {
+		return err
+	}
+	route, err := h.Store.Restore(c.Request().Context(), actor, id, version, ifVersion)
+	if err != nil {
+		return err
+	}
+	return writeRoute(c, http.StatusOK, route)
+}
+
+func (h *Handler) shares(c *echo.Context) error {
+	actor, err := auth.RequireUser(c.Request().Context())
+	if err != nil {
+		return err
+	}
+	id, err := routeID(c)
+	if err != nil {
+		return err
+	}
+	shares, err := h.Store.Shares(c.Request().Context(), actor, id)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, map[string]any{"items": shares})
+}
+
+// putShare takes {"email": "...", "role": "viewer"|"editor"}.
+func (h *Handler) putShare(c *echo.Context) error {
+	actor, err := auth.RequireUser(c.Request().Context())
+	if err != nil {
+		return err
+	}
+	id, err := routeID(c)
+	if err != nil {
+		return err
+	}
+	var req struct {
+		Email string `json:"email"`
+		Role  string `json:"role"`
+	}
+	if err := echo.BindBody(c, &req); err != nil {
+		return err
+	}
+	share, err := h.Store.PutShare(c.Request().Context(), actor, id, req.Email, req.Role)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, share)
+}
+
+func (h *Handler) deleteShare(c *echo.Context) error {
+	actor, err := auth.RequireUser(c.Request().Context())
+	if err != nil {
+		return err
+	}
+	id, err := routeID(c)
+	if err != nil {
+		return err
+	}
+	userID, err := uuid.Parse(c.Param("user_id"))
+	if err != nil {
+		return apperr.New(apperr.NotFound, "share not found")
+	}
+	if err := h.Store.DeleteShare(c.Request().Context(), actor, id, userID.String()); err != nil {
+		return err
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
+// routeID validates the :id path parameter. Malformed IDs are reported as
+// not found so they never reach the database.
+func routeID(c *echo.Context) (string, error) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return "", ErrNotFound
+	}
+	return id.String(), nil
+}
+
+// editRequest extracts what every editing endpoint needs.
+func editRequest(c *echo.Context) (actor, id string, ifVersion int, err error) {
+	if actor, err = auth.RequireUser(c.Request().Context()); err != nil {
+		return
+	}
+	if id, err = routeID(c); err != nil {
+		return
+	}
+	ifVersion, err = parseIfMatch(c.Request().Header.Get("If-Match"))
+	return
+}
+
+// parseIfMatch returns the version from an If-Match header such as "3", or
+// 0 when the header is absent.
+func parseIfMatch(v string) (int, error) {
+	v = strings.TrimSpace(v)
+	if v == "" || v == "*" {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(strings.Trim(strings.TrimPrefix(v, "W/"), `"`))
+	if err != nil || n < 1 {
+		return 0, apperr.New(apperr.Invalid, `If-Match must be a version ETag such as "3"`)
+	}
+	return n, nil
+}
+
+func versionParam(c *echo.Context) (int, error) {
+	v, err := strconv.Atoi(c.Param("version"))
+	if err != nil || v < 1 {
+		return 0, apperr.New(apperr.NotFound, "version not found")
+	}
+	return v, nil
+}
+
+func writeRoute(c *echo.Context, status int, route Route) error {
+	c.Response().Header().Set("ETag", strconv.Quote(strconv.Itoa(route.Version)))
+	return c.JSON(status, route)
+}
+
+func writeFeature(c *echo.Context, geom json.RawMessage, props map[string]any) error {
+	b, err := json.Marshal(map[string]any{"type": "Feature", "geometry": geom, "properties": props})
+	if err != nil {
+		return err
+	}
+	return c.Blob(http.StatusOK, "application/geo+json", b)
 }

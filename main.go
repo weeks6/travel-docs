@@ -11,9 +11,8 @@ import (
 	"time"
 
 	"github.com/weeks6/travel-docs/db"
+	"github.com/weeks6/travel-docs/server"
 	"github.com/weeks6/travel-docs/services/auth"
-	"github.com/weeks6/travel-docs/services/routes"
-	"github.com/weeks6/travel-docs/web"
 )
 
 const defaultDatabaseURL = "postgres://travel:travel@localhost:5432/travel_docs?sslmode=disable"
@@ -32,19 +31,27 @@ func main() {
 		log.Fatalf("migrate: %v", err)
 	}
 
-	auth.InitJWT()
-
-	mux := http.NewServeMux()
-	auth.RegisterHandlers(mux)
-	(&routes.Handler{Store: routes.NewPostgresStore(pool)}).Register(mux)
-	web.Register(mux)
+	priv, pub, err := auth.LoadKeyFiles(
+		getenv("JWT_PRIVATE_KEY_FILE", "test_key.pem"),
+		getenv("JWT_PUBLIC_KEY_FILE", "test_key.pub.pem"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	authSvc, err := auth.New(pool, auth.Config{
+		PrivateKeyPEM: priv,
+		PublicKeyPEM:  pub,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	s := &http.Server{
-		Addr:           getenv("ADDR", ":8080"),
-		Handler:        mux,
-		ReadTimeout:    30 * time.Second, // room for GPX uploads
-		WriteTimeout:   30 * time.Second,
-		MaxHeaderBytes: 1 << 20,
+		Addr:              getenv("ADDR", ":8080"),
+		Handler:           server.New(pool, authSvc),
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       60 * time.Second, // room for GPX uploads
+		WriteTimeout:      60 * time.Second,
+		MaxHeaderBytes:    1 << 20,
 	}
 
 	go func() {
