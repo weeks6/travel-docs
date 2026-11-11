@@ -19,6 +19,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -29,24 +30,33 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/weeks6/travel-docs/db"
+	"github.com/weeks6/travel-docs/jobs"
+	"github.com/weeks6/travel-docs/pubsub"
 	"github.com/weeks6/travel-docs/server"
 	"github.com/weeks6/travel-docs/services/auth"
+	"github.com/weeks6/travel-docs/services/routes"
 	"golang.org/x/crypto/bcrypt"
 )
 
 const testPassword = "correct horse battery"
 
 type env struct {
-	t    *testing.T
-	srv  *httptest.Server
-	pool *pgxpool.Pool
-	priv []byte
-	pub  []byte
+	t       *testing.T
+	srv     *httptest.Server
+	pool    *pgxpool.Pool
+	priv    []byte
+	pub     []byte
+	broker  pubsub.Broker
+	handler *server.Server
 }
 
 // setup returns a server backed by a freshly emptied test database.
-func setup(t *testing.T) *env {
+func setup(t *testing.T, options ...setupOption) *env {
 	t.Helper()
+	var opts setupOptions
+	for _, o := range options {
+		o(&opts)
+	}
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
 		t.Skip("TEST_DATABASE_URL not set; skipping API test")
@@ -63,7 +73,7 @@ func setup(t *testing.T) *env {
 	if err := db.Migrate(ctx, pool); err != nil {
 		t.Fatalf("second migrate must be a no-op: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `TRUNCATE users, routes, collections, audit_events CASCADE`); err != nil {
+	if _, err := pool.Exec(ctx, `TRUNCATE users, routes, collections, audit_events, import_jobs, trips CASCADE`); err != nil {
 		t.Fatal(err)
 	}
 
@@ -73,10 +83,68 @@ func setup(t *testing.T) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(server.New(pool, svc))
-	t.Cleanup(srv.Close)
-	return &env{t: t, srv: srv, pool: pool, priv: priv, pub: pub}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	if testing.Verbose() {
+		log = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	broker := pubsub.NewPostgres(pool, log)
+	brokerDone := make(chan struct{})
+	go func() { defer close(brokerDone); broker.Run(ctx) }()
+	select {
+	case <-broker.Ready():
+	case <-time.After(10 * time.Second):
+		t.Fatal("pubsub listener did not start")
+	}
+
+	handler, err := server.New(server.Config{
+		Pool: pool, Auth: svc, Broker: broker, Log: log,
+		CORSOrigins: []string{testOrigin},
+		RateLimits:  opts.rateLimits,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(handler)
+
+	jobCfg := jobs.Config{Workers: 2, PollInterval: 50 * time.Millisecond, Lease: 2 * time.Second,
+		RetryBaseDelay: 20 * time.Millisecond, ShutdownGrace: 2 * time.Second}
+	if opts.noWorkers {
+		jobCfg.Workers = 0
+	}
+	runnerDone := make(chan struct{})
+	go func() {
+		defer close(runnerDone)
+		if !opts.noWorkers {
+			jobs.NewRunner(pool, routes.NewStore(pool), broker, log, jobCfg).Run(ctx)
+		}
+	}()
+	t.Cleanup(func() {
+		sctx, scancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer scancel()
+		handler.CloseStreams(sctx)
+		srv.Close()
+		cancel()
+		<-runnerDone
+		<-brokerDone
+	})
+	return &env{t: t, srv: srv, pool: pool, priv: priv, pub: pub, broker: broker, handler: handler}
 }
+
+const testOrigin = "http://localhost:3000"
+
+type setupOptions struct {
+	rateLimits server.RateLimits
+	noWorkers  bool // don't process import jobs (to test queued jobs)
+}
+
+type setupOption func(*setupOptions)
+
+func withRateLimits(r server.RateLimits) setupOption {
+	return func(o *setupOptions) { o.rateLimits = r }
+}
+
+func withoutWorkers() setupOption { return func(o *setupOptions) { o.noWorkers = true } }
 
 func testKeys(t *testing.T) (privPEM, pubPEM []byte) {
 	t.Helper()
@@ -375,3 +443,5 @@ func actions(events []eventJSON) string {
 	}
 	return strings.Join(a, ",")
 }
+
+func discardLog() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }

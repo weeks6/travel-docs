@@ -484,13 +484,13 @@ func editRequest(c *echo.Context) (actor, id string, ifVersion int, err error) {
 	if id, err = routeID(c); err != nil {
 		return
 	}
-	ifVersion, err = parseIfMatch(c.Request().Header.Get("If-Match"))
+	ifVersion, err = ParseIfMatch(c.Request().Header.Get("If-Match"))
 	return
 }
 
-// parseIfMatch returns the version from an If-Match header such as "3", or
+// ParseIfMatch returns the version from an If-Match header such as "3", or
 // 0 when the header is absent.
-func parseIfMatch(v string) (int, error) {
+func ParseIfMatch(v string) (int, error) {
 	v = strings.TrimSpace(v)
 	if v == "" || v == "*" {
 		return 0, nil

@@ -133,13 +133,13 @@ func TestBuildContent(t *testing.T) {
 
 func TestParseIfMatch(t *testing.T) {
 	for header, want := range map[string]int{"": 0, "*": 0, `"3"`: 3, `W/"12"`: 12, "7": 7} {
-		got, err := parseIfMatch(header)
+		got, err := ParseIfMatch(header)
 		if err != nil || got != want {
 			t.Errorf("If-Match %q = %d, %v; want %d", header, got, err, want)
 		}
 	}
 	for _, bad := range []string{`"abc"`, `"0"`, `"-1"`} {
-		if _, err := parseIfMatch(bad); apperr.KindOf(err) != apperr.Invalid {
+		if _, err := ParseIfMatch(bad); apperr.KindOf(err) != apperr.Invalid {
 			t.Errorf("If-Match %q: err = %v, want Invalid", bad, err)
 		}
 	}

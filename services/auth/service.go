@@ -73,38 +73,53 @@ func (s *Service) Middleware(next echo.HandlerFunc) echo.HandlerFunc {
 		if header == "" {
 			return next(c)
 		}
-		userID, err := s.authenticate(c.Request().Context(), header)
+		scheme, raw, ok := strings.Cut(header, " ")
+		if !ok || !strings.EqualFold(scheme, "Bearer") || strings.TrimSpace(raw) == "" {
+			return apperr.New(apperr.Unauthorized, "Authorization header must be \"Bearer <token>\"")
+		}
+		userID, expires, err := s.Authenticate(c.Request().Context(), strings.TrimSpace(raw))
 		if err != nil {
 			return err
 		}
-		c.SetRequest(c.Request().WithContext(WithUser(c.Request().Context(), userID)))
+		ctx := WithUser(c.Request().Context(), userID)
+		ctx = context.WithValue(ctx, expiryKey{}, expires)
+		c.SetRequest(c.Request().WithContext(ctx))
 		return next(c)
 	}
 }
 
-func (s *Service) authenticate(ctx context.Context, header string) (string, error) {
-	scheme, raw, ok := strings.Cut(header, " ")
-	if !ok || !strings.EqualFold(scheme, "Bearer") || strings.TrimSpace(raw) == "" {
-		return "", apperr.New(apperr.Unauthorized, "Authorization header must be \"Bearer <token>\"")
-	}
-	claims, err := s.parseAccessToken(strings.TrimSpace(raw))
+// Authenticate verifies an access token and returns its user and expiry.
+// Used directly by connections that can't send an Authorization header
+// (WebSockets).
+func (s *Service) Authenticate(ctx context.Context, token string) (userID string, expires time.Time, err error) {
+	claims, err := s.parseAccessToken(token)
 	if err != nil {
-		return "", errBadAccessToken
+		return "", time.Time{}, errBadAccessToken
 	}
 	// One primary-key lookup per request lets deleted accounts, password
 	// changes and "log out everywhere" take effect immediately.
 	var validAfter time.Time
 	err = s.pool.QueryRow(ctx, `SELECT tokens_valid_after FROM users WHERE id = $1`, claims.Subject).Scan(&validAfter)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", errBadAccessToken
+		return "", time.Time{}, errBadAccessToken
 	}
 	if err != nil {
-		return "", fmt.Errorf("load user: %w", err)
+		return "", time.Time{}, fmt.Errorf("load user: %w", err)
 	}
 	if claims.IssuedAt.Time.Before(validAfter) {
-		return "", errBadAccessToken
+		return "", time.Time{}, errBadAccessToken
 	}
-	return claims.Subject, nil
+	return claims.Subject, claims.ExpiresAt.Time, nil
+}
+
+type expiryKey struct{}
+
+// TokenExpiry returns when the request's access token expires (zero for
+// anonymous requests). Long-lived streams end then, so the client
+// reconnects with a fresh token and revoked sessions don't linger.
+func TokenExpiry(ctx context.Context) time.Time {
+	t, _ := ctx.Value(expiryKey{}).(time.Time)
+	return t
 }
 
 // UserID returns the authenticated user's ID, or "" for anonymous requests.

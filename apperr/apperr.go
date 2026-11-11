@@ -18,6 +18,7 @@ const (
 	Conflict
 	PreconditionFailed
 	Unprocessable
+	TooManyRequests
 )
 
 type Error struct {

@@ -1,6 +1,8 @@
 package gpx
 
 import (
+	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -138,5 +140,16 @@ func TestFillElevation(t *testing.T) {
 	flat := &File{Segments: []Segment{{none, none}}}
 	if flat.FillElevation() || flat.Segments[0][0].HasEle {
 		t.Error("file without elevation must stay unchanged")
+	}
+}
+
+type canceledReader struct{}
+
+func (canceledReader) Read([]byte) (int, error) { return 0, context.Canceled }
+
+func TestParseReaderCanceled(t *testing.T) {
+	_, err := Parse(canceledReader{})
+	if !errors.Is(err, context.Canceled) || IsValidationError(err) {
+		t.Fatalf("err = %v, want context.Canceled (not a validation error)", err)
 	}
 }

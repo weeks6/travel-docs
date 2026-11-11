@@ -1,0 +1,439 @@
+package trips
+
+import (
+	"context"
+	"encoding/json"
+	"log/slog"
+	"net/http"
+	"time"
+	"uuid"
+
+	"github.com/labstack/echo/v5"
+	"github.com/labstack/echo/v5/middleware"
+	"github.com/weeks6/travel-docs/apperr"
+	"github.com/weeks6/travel-docs/logging"
+	"github.com/weeks6/travel-docs/metrics"
+	"github.com/weeks6/travel-docs/pubsub"
+	"github.com/weeks6/travel-docs/services/auth"
+)
+
+const (
+	defaultPageSize         = 20
+	maxPageSize             = 100
+	defaultHistoryPoints    = 2000
+	maxHistoryPoints        = 10000
+	maxJSONBody             = 64 << 10
+	maxLocationsRequestBody = 64 << 10
+)
+
+// Handler serves the /trips and /trip-invitations APIs.
+type Handler struct {
+	Store  *Store
+	Hub    *Hub
+	Broker pubsub.Broker
+	Log    *slog.Logger
+}
+
+func (h *Handler) Register(e *echo.Echo) {
+	small := middleware.BodyLimit(maxJSONBody)
+	g := e.Group("/trips")
+	g.POST("", h.create, small)
+	g.GET("", h.list)
+	g.GET("/:id", h.get)
+	g.PATCH("/:id", h.update, small)
+	g.DELETE("/:id", h.delete)
+	g.POST("/:id/start", h.start)
+	g.POST("/:id/end", h.end)
+	g.GET("/:id/participants", h.participants)
+	g.DELETE("/:id/participants/:user_id", h.removeParticipant)
+	g.GET("/:id/invitations", h.tripInvitations)
+	g.POST("/:id/invitations", h.invite, small)
+	g.DELETE("/:id/invitations/:invitation_id", h.revokeInvitation)
+	g.POST("/:id/locations", h.addLocations, middleware.BodyLimit(maxLocationsRequestBody))
+	g.GET("/:id/history", h.history)
+	g.GET("/:id/ws", h.Hub.serve)
+
+	inv := e.Group("/trip-invitations")
+	inv.GET("", h.myInvitations)
+	inv.POST("/:id/accept", func(c *echo.Context) error { return h.respond(c, true) })
+	inv.POST("/:id/decline", func(c *echo.Context) error { return h.respond(c, false) })
+}
+
+func (h *Handler) create(c *echo.Context) error {
+	actor, err := auth.RequireUser(c.Request().Context())
+	if err != nil {
+		return err
+	}
+	var in Input
+	if err := echo.BindBody(c, &in); err != nil {
+		return err
+	}
+	t, err := h.Store.Create(c.Request().Context(), actor, in)
+	if err != nil {
+		return err
+	}
+	c.Response().Header().Set(echo.HeaderLocation, "/trips/"+t.ID)
+	return c.JSON(http.StatusCreated, t)
+}
+
+// list supports ?status=planned|active|ended, page and page_size.
+func (h *Handler) list(c *echo.Context) error {
+	actor, err := auth.RequireUser(c.Request().Context())
+	if err != nil {
+		return err
+	}
+	status := c.QueryParam("status")
+	switch status {
+	case "", StatusPlanned, StatusActive, StatusEnded:
+	case "all":
+		status = ""
+	default:
+		return apperr.New(apperr.Invalid, "status must be planned, active, ended or all")
+	}
+	page, pageSize := 1, defaultPageSize
+	if err := echo.QueryParamsBinder(c).Int("page", &page).Int("page_size", &pageSize).BindError(); err != nil {
+		return apperr.New(apperr.Invalid, "page and page_size must be integers")
+	}
+	if page < 1 {
+		return apperr.New(apperr.Invalid, "page must be a positive integer")
+	}
+	if pageSize < 1 || pageSize > maxPageSize {
+		return apperr.Newf(apperr.Invalid, "page_size must be between 1 and %d", maxPageSize)
+	}
+	res, err := h.Store.List(c.Request().Context(), actor, status, page, pageSize)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, res)
+}
+
+func (h *Handler) get(c *echo.Context) error {
+	actor, id, err := actorAndTrip(c)
+	if err != nil {
+		return err
+	}
+	t, err := h.Store.Get(c.Request().Context(), actor, id)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, t)
+}
+
+func (h *Handler) update(c *echo.Context) error {
+	actor, id, err := actorAndTrip(c)
+	if err != nil {
+		return err
+	}
+	var in Input
+	if err := echo.BindBody(c, &in); err != nil {
+		return err
+	}
+	ctx := c.Request().Context()
+	t, err := h.Store.Update(ctx, actor, id, in)
+	if err != nil {
+		return err
+	}
+	h.publish(ctx, id, ChangeEvent{Type: "trip"})
+	return c.JSON(http.StatusOK, t)
+}
+
+func (h *Handler) delete(c *echo.Context) error {
+	actor, id, err := actorAndTrip(c)
+	if err != nil {
+		return err
+	}
+	ctx := c.Request().Context()
+	if err := h.Store.Delete(ctx, actor, id); err != nil {
+		return err
+	}
+	h.publish(ctx, id, ChangeEvent{Type: "deleted"})
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *Handler) start(c *echo.Context) error { return h.setStatus(c, StatusActive) }
+func (h *Handler) end(c *echo.Context) error   { return h.setStatus(c, StatusEnded) }
+
+func (h *Handler) setStatus(c *echo.Context, to string) error {
+	actor, id, err := actorAndTrip(c)
+	if err != nil {
+		return err
+	}
+	ctx := c.Request().Context()
+	t, err := h.Store.SetStatus(ctx, actor, id, to)
+	if err != nil {
+		return err
+	}
+	h.publish(ctx, id, ChangeEvent{Type: "trip"})
+	return c.JSON(http.StatusOK, t)
+}
+
+func (h *Handler) participants(c *echo.Context) error {
+	actor, id, err := actorAndTrip(c)
+	if err != nil {
+		return err
+	}
+	list, err := h.Store.Participants(c.Request().Context(), actor, id)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, map[string]any{"items": list})
+}
+
+func (h *Handler) removeParticipant(c *echo.Context) error {
+	actor, id, err := actorAndTrip(c)
+	if err != nil {
+		return err
+	}
+	userID, err := uuid.Parse(c.Param("user_id"))
+	if err != nil {
+		return apperr.New(apperr.NotFound, "participant not found")
+	}
+	ctx := c.Request().Context()
+	if err := h.Store.RemoveParticipant(ctx, actor, id, userID.String()); err != nil {
+		return err
+	}
+	h.publish(ctx, id, ChangeEvent{Type: "removed", UserID: userID.String()})
+	h.publish(ctx, id, ChangeEvent{Type: "participants"})
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *Handler) tripInvitations(c *echo.Context) error {
+	actor, id, err := actorAndTrip(c)
+	if err != nil {
+		return err
+	}
+	list, err := h.Store.TripInvitations(c.Request().Context(), actor, id)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, map[string]any{"items": list})
+}
+
+// invite takes {"email": "..."} of a registered user.
+func (h *Handler) invite(c *echo.Context) error {
+	actor, id, err := actorAndTrip(c)
+	if err != nil {
+		return err
+	}
+	var req struct {
+		Email string `json:"email"`
+	}
+	if err := echo.BindBody(c, &req); err != nil {
+		return err
+	}
+	ctx := c.Request().Context()
+	inv, err := h.Store.Invite(ctx, actor, id, req.Email)
+	if err != nil {
+		return err
+	}
+	h.notifyUser(ctx, inv.InviteeID, inv)
+	return c.JSON(http.StatusCreated, inv)
+}
+
+func (h *Handler) revokeInvitation(c *echo.Context) error {
+	actor, id, err := actorAndTrip(c)
+	if err != nil {
+		return err
+	}
+	invID, err := uuid.Parse(c.Param("invitation_id"))
+	if err != nil {
+		return errInvitationGone
+	}
+	ctx := c.Request().Context()
+	inv, err := h.Store.RevokeInvitation(ctx, actor, id, invID.String())
+	if err != nil {
+		return err
+	}
+	h.notifyUser(ctx, inv.InviteeID, inv)
+	return c.NoContent(http.StatusNoContent)
+}
+
+// myInvitations lists invitations sent to me: ?status=pending (default) or all.
+func (h *Handler) myInvitations(c *echo.Context) error {
+	actor, err := auth.RequireUser(c.Request().Context())
+	if err != nil {
+		return err
+	}
+	all := false
+	switch c.QueryParam("status") {
+	case "", "pending":
+	case "all":
+		all = true
+	default:
+		return apperr.New(apperr.Invalid, "status must be pending or all")
+	}
+	list, err := h.Store.MyInvitations(c.Request().Context(), actor, all)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, map[string]any{"items": list})
+}
+
+func (h *Handler) respond(c *echo.Context, accept bool) error {
+	actor, err := auth.RequireUser(c.Request().Context())
+	if err != nil {
+		return err
+	}
+	invID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return errInvitationGone
+	}
+	ctx := c.Request().Context()
+	inv, err := h.Store.RespondInvitation(ctx, actor, invID.String(), accept)
+	if err != nil {
+		return err
+	}
+	if accept {
+		h.publish(ctx, inv.TripID, ChangeEvent{Type: "participants"})
+	}
+	if inv.InvitedByID != nil {
+		h.notifyUser(ctx, *inv.InvitedByID, inv)
+	}
+	h.notifyUser(ctx, inv.InviteeID, inv) // the invitee's other devices
+	return c.JSON(http.StatusOK, inv)
+}
+
+// addLocations takes {"points": [{"lat", "lon", "ele"?, "accuracy_m"?,
+// "speed_mps"?, "heading_deg"?, "recorded_at"?}, ...]} (at most 100), for
+// clients that can't keep a WebSocket open or send buffered points later.
+func (h *Handler) addLocations(c *echo.Context) error {
+	actor, id, err := actorAndTrip(c)
+	if err != nil {
+		return err
+	}
+	var req struct {
+		Points []Position `json:"points"`
+	}
+	if err := echo.BindBody(c, &req); err != nil {
+		return err
+	}
+	if len(req.Points) == 0 || len(req.Points) > MaxBatchPoints {
+		return apperr.Newf(apperr.Invalid, "send between 1 and %d points", MaxBatchPoints)
+	}
+	ctx := c.Request().Context()
+	newest, err := h.Store.AddLocations(ctx, id, actor, req.Points)
+	if err != nil {
+		return err
+	}
+	metrics.LocationUpdates.WithLabelValues("http").Add(float64(len(req.Points)))
+	if newest != nil {
+		h.publish(ctx, id, LocationEvent{Type: "location", UserID: actor, Position: *newest})
+	}
+	return c.JSON(http.StatusAccepted, map[string]any{"accepted": len(req.Points)})
+}
+
+// history supports user_id, since and until (RFC 3339) and max_points
+// (per participant, default 2000).
+func (h *Handler) history(c *echo.Context) error {
+	actor, id, err := actorAndTrip(c)
+	if err != nil {
+		return err
+	}
+	p := HistoryParams{MaxPoints: defaultHistoryPoints}
+	if v := c.QueryParam("user_id"); v != "" {
+		u, err := uuid.Parse(v)
+		if err != nil {
+			return apperr.New(apperr.Invalid, "user_id must be a UUID")
+		}
+		p.UserID = u.String()
+	}
+	for _, f := range []struct {
+		key string
+		dst **time.Time
+	}{{"since", &p.Since}, {"until", &p.Until}} {
+		if v := c.QueryParam(f.key); v != "" {
+			t, err := time.Parse(time.RFC3339, v)
+			if err != nil {
+				return apperr.Newf(apperr.Invalid, "%s must be an RFC 3339 time", f.key)
+			}
+			*f.dst = &t
+		}
+	}
+	if err := echo.QueryParamsBinder(c).Int("max_points", &p.MaxPoints).BindError(); err != nil ||
+		p.MaxPoints < 2 || p.MaxPoints > maxHistoryPoints {
+		return apperr.Newf(apperr.Invalid, "max_points must be between 2 and %d", maxHistoryPoints)
+	}
+	fc, err := h.Store.History(c.Request().Context(), actor, id, p)
+	if err != nil {
+		return err
+	}
+	b, err := json.Marshal(fc)
+	if err != nil {
+		return err
+	}
+	return c.Blob(http.StatusOK, "application/geo+json", b)
+}
+
+// publish sends a live event to the trip's WebSocket clients.
+func (h *Handler) publish(ctx context.Context, tripID string, ev any) { h.Hub.publish(ctx, tripID, ev) }
+
+// notifyUser sends an invitation update to a user's event stream.
+func (h *Handler) notifyUser(ctx context.Context, userID string, inv Invitation) {
+	data, err := json.Marshal(UserEvent{Type: "invitation", Invitation: inv})
+	if err == nil {
+		err = h.Broker.Publish(ctx, pubsub.UserTopic(userID), data)
+	}
+	if err != nil {
+		h.Log.Warn("publish invitation event", "user_id", userID, "error", err)
+	}
+}
+
+func actorAndTrip(c *echo.Context) (actor, id string, err error) {
+	if actor, err = auth.RequireUser(c.Request().Context()); err != nil {
+		return
+	}
+	parsed, perr := uuid.Parse(c.Param("id"))
+	if perr != nil {
+		return "", "", ErrNotFound
+	}
+	return actor, parsed.String(), nil
+}
+
+// Janitor applies the location retention policy and expires stale
+// presence in the background.
+type Janitor struct {
+	Store *Store
+	Log   *slog.Logger
+	// Interval between retention runs. Default 10 minutes.
+	Interval time.Duration
+}
+
+// Run works until ctx is canceled.
+func (j *Janitor) Run(ctx context.Context) {
+	interval := j.Interval
+	if interval <= 0 {
+		interval = 10 * time.Minute
+	}
+	retention := time.NewTicker(interval)
+	defer retention.Stop()
+	presence := time.NewTicker(time.Minute)
+	defer presence.Stop()
+	j.retention(ctx)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-retention.C:
+			j.retention(ctx)
+		case <-presence.C:
+			if err := j.Store.ExpirePresence(ctx); err != nil && ctx.Err() == nil {
+				j.Log.Error("expire trip presence", "error", err)
+			}
+		}
+	}
+}
+
+func (j *Janitor) retention(ctx context.Context) {
+	start := time.Now()
+	n, err := j.Store.ApplyRetention(ctx)
+	if err != nil {
+		if ctx.Err() == nil {
+			j.Log.Error("apply location retention", "error", err)
+		}
+		return
+	}
+	metrics.LocationsDeleted.Add(float64(n))
+	if n > 0 {
+		j.Log.Info("deleted expired trip locations", "count", n, "duration_ms", logging.Millis(time.Since(start)))
+	}
+}

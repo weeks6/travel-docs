@@ -2,6 +2,7 @@
 package gpx
 
 import (
+	"context"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -84,11 +85,16 @@ type xmlPoint struct {
 
 // Parse reads and validates a GPX document. Segments with fewer than two
 // points are dropped; the file must contain at least one usable segment.
-// Callers should limit the size of r.
+// Callers should limit the size of r. If r fails with a context error, that
+// error is returned as is.
 func Parse(r io.Reader) (*File, error) {
 	var doc xmlGPX
 	dec := xml.NewDecoder(r)
 	if err := dec.Decode(&doc); err != nil {
+		// Reading was stopped (e.g. a canceled import): not the file's fault.
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, err
+		}
 		if errors.Is(err, io.EOF) {
 			return nil, invalid("no XML document found")
 		}

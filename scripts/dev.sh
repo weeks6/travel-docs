@@ -1,33 +1,44 @@
 #!/usr/bin/env bash
-# Runs Travel Docs locally: PostgreSQL/PostGIS in Docker, the app (API + web UI)
-# on your machine, with live reload when `air` is installed.
+# Runs Travel Docs locally: PostgreSQL/PostGIS in Docker, the API on your
+# machine (live reload when `air` is installed) and the Next.js web UI
+# (`next dev` in frontend/).
 #
-# Usage: scripts/dev.sh [--seed] [--open] [--no-reload]
+# Usage: scripts/dev.sh [--seed] [--open] [--no-reload] [--no-web]
 #   --seed       create a demo account (demo@example.com / demo-password) with a sample route
-#   --open       open the web UI in your browser once the app is up
-#   --no-reload  build and run once, even if air is installed
+#   --open       open the web UI in your browser once everything is up
+#   --no-reload  build and run the API once, even if air is installed
+#   --no-web     run only the API
 #
-# Environment: PORT (default 8080). Set DATABASE_URL to use your own database
-# instead of the Docker one. Press Ctrl+C to stop the app (the database keeps
-# running; stop it with `docker compose stop db`).
+# Environment: PORT (API, default 8080), WEB_PORT (web UI, default 3000),
+# DB_PORT (host port of the Docker database, default 5432; change it if a local
+# PostgreSQL already uses 5432). Set DATABASE_URL to use your own database
+# instead of the Docker one. Press Ctrl+C to stop (the database keeps running;
+# `docker compose stop db`). On Windows, run it from Git Bash.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
 PORT="${PORT:-8080}"
+export DB_PORT="${DB_PORT:-5432}"
+# Go adds .exe to binaries on Windows (Git Bash reports MINGW/MSYS).
+case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) EXE=.exe ;; *) EXE= ;; esac
+WEB_PORT="${WEB_PORT:-3000}"
 BASE="http://localhost:$PORT"
+WEB="http://localhost:$WEB_PORT"
 DEMO_EMAIL="demo@example.com"
 DEMO_PASSWORD="demo-password"
 SEED=0
 OPEN=0
 RELOAD=1
+WEB_UI=1
 
 for arg in "$@"; do
   case "$arg" in
     --seed) SEED=1 ;;
     --open) OPEN=1 ;;
     --no-reload) RELOAD=0 ;;
-    -h | --help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --no-web) WEB_UI=0 ;;
+    -h | --help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $arg (see --help)" >&2; exit 2 ;;
   esac
 done
@@ -62,8 +73,8 @@ else
     fi
   fi
   log "Starting the database…"
-  docker compose up -d --wait db
-  export DATABASE_URL="postgres://travel:travel@localhost:5432/travel_docs?sslmode=disable"
+  docker compose up -d --wait db || die "could not start the database. If port $DB_PORT is taken (e.g. by a local PostgreSQL), run with DB_PORT=55432"
+  export DATABASE_URL="postgres://travel:travel@localhost:$DB_PORT/travel_docs?sslmode=disable"
 fi
 
 # --- App -------------------------------------------------------------------
@@ -73,26 +84,31 @@ if pid=$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null | head -1) && [[ -n 
 fi
 
 export ADDR=":$PORT"
+export CORS_ORIGINS="${CORS_ORIGINS:-$WEB}"
+export LOG_FORMAT="${LOG_FORMAT:-text}"
+export METRICS_ADDR="${METRICS_ADDR:-:9090}"
 mkdir -p tmp
 if [[ $RELOAD == 1 ]] && command -v air >/dev/null; then
-  log "Starting the app with live reload (air): Go, HTML, JS, CSS and SQL changes rebuild it"
+  log "Starting the API with live reload (air): Go and SQL changes rebuild it"
   air \
-    -build.cmd "go build -o ./tmp/main ." \
-    -build.bin "./tmp/main" \
-    -build.include_ext "go,html,js,css,sql" \
-    -build.exclude_dir "tmp,apitest,.git,.github,node_modules" &
+    -build.cmd "go build -o ./tmp/main$EXE ." \
+    -build.bin "./tmp/main$EXE" \
+    -build.include_ext "go,sql" \
+    -build.exclude_dir "tmp,apitest,.git,.github,node_modules,frontend" &
 else
   [[ $RELOAD == 1 ]] && log "air not found (go install github.com/air-verse/air@latest for live reload)"
   log "Building the app…"
-  go build -o ./tmp/main .
-  ./tmp/main &
+  go build -o "./tmp/main$EXE" .
+  "./tmp/main$EXE" &
 fi
 APP_PID=$!
+WEB_PID=""
 
 cleanup() {
   trap - EXIT INT TERM
+  if [[ -n "$WEB_PID" ]]; then kill "$WEB_PID" 2>/dev/null || true; fi
   kill "$APP_PID" 2>/dev/null || true
-  wait "$APP_PID" 2>/dev/null || true
+  wait 2>/dev/null || true
 }
 trap cleanup EXIT
 trap 'exit 130' INT TERM
@@ -133,12 +149,32 @@ seed() {
 
 [[ $SEED == 1 ]] && seed
 
+# --- Web UI ----------------------------------------------------------------
+
+if [[ $WEB_UI == 1 ]]; then
+  command -v npm >/dev/null || die "Node.js/npm is not installed (or run with --no-web)"
+  if [[ ! -d frontend/node_modules ]]; then
+    log "Installing web UI dependencies…"
+    (cd frontend && npm ci)
+  fi
+  log "Starting the web UI (Next.js dev server)…"
+  (cd frontend && NEXT_PUBLIC_API_URL="$BASE" NEXT_TELEMETRY_DISABLED=1 exec npx next dev -p "$WEB_PORT") &
+  WEB_PID=$!
+  for _ in $(seq 1 120); do
+    curl -fsS -o /dev/null "$WEB" 2>/dev/null && break
+    kill -0 "$WEB_PID" 2>/dev/null || die "the web UI exited during startup (see output above)"
+    sleep 1
+  done
+fi
+
 cat <<EOF
 
   Travel Docs is running
 
-  Web UI        $BASE
+  Web UI        $([[ $WEB_UI == 1 ]] && echo "$WEB" || echo "not started (--no-web)")
+  API           $BASE
   Health        $BASE/healthz
+  Metrics       http://localhost${METRICS_ADDR}/metrics
   Public API    curl -s '$BASE/routes?scope=public'
   Database      docker compose exec db psql -U travel travel_docs
 EOF
@@ -153,7 +189,10 @@ fi
 printf '\n  Press Ctrl+C to stop.\n\n'
 
 if [[ $OPEN == 1 ]]; then
-  if command -v open >/dev/null; then open "$BASE"; elif command -v xdg-open >/dev/null; then xdg-open "$BASE"; fi
+  URL=$([[ $WEB_UI == 1 ]] && echo "$WEB" || echo "$BASE")
+  if [[ -n "$EXE" ]]; then start "" "$URL"
+  elif command -v open >/dev/null; then open "$URL"
+  elif command -v xdg-open >/dev/null; then xdg-open "$URL"; fi
 fi
 
 wait "$APP_PID"

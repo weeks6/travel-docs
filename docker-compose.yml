@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: travel
       POSTGRES_DB: travel_docs
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-5432}:5432" # DB_PORT=55432 if a local PostgreSQL uses 5432
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./db/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro
@@ -18,18 +18,25 @@ services:
       retries: 20
 
   # `docker compose up --build` runs everything in containers;
-  # `docker compose watch` also rebuilds the app when source files change.
+  # `docker compose watch` also rebuilds when source files change.
   app:
     build: .
     environment:
       DATABASE_URL: postgres://travel:travel@db:5432/travel_docs?sslmode=disable
       JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private_key
       JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public_key
+      CORS_ORIGINS: http://localhost:3000
+      SHUTDOWN_TIMEOUT: 25s
+      # Traces go to Jaeger when it runs (`docker compose --profile tracing up`).
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
     secrets:
       - jwt_private_key
       - jwt_public_key
     ports:
-      - "8080:8080"
+      - "8080:8080" # API
+      - "9090:9090" # Prometheus metrics (/metrics)
+    # Time for graceful shutdown: draining requests and import jobs.
+    stop_grace_period: 35s
     depends_on:
       db:
         condition: service_healthy
@@ -40,6 +47,34 @@ services:
           ignore:
             - tmp/
             - .git/
+            - frontend/
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        # The browser calls the API directly, so this is the address seen from the browser.
+        NEXT_PUBLIC_API_URL: http://localhost:8080
+    ports:
+      - "3000:3000"
+    depends_on:
+      - app
+    develop:
+      watch:
+        - action: rebuild
+          path: ./frontend
+          ignore:
+            - node_modules/
+            - .next/
+
+  # Optional trace viewer: OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318 docker compose --profile tracing up
+  # then open http://localhost:16686.
+  jaeger:
+    image: jaegertracing/jaeger:2.11.0
+    profiles: [tracing]
+    ports:
+      - "16686:16686" # UI
+      - "4318:4318" # OTLP over HTTP
 
 # Development keys only. Generate new keys for any real deployment.
 secrets:

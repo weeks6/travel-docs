@@ -80,6 +80,18 @@ func (s *Store) Get(ctx context.Context, actor, id string) (Route, error) {
 
 // Create stores a new route owned by actor as version 1.
 func (s *Store) Create(ctx context.Context, actor string, c Content, visibility string) (Route, error) {
+	var route Route
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		var err error
+		route, err = s.CreateInTx(ctx, tx, actor, c, visibility, nil)
+		return err
+	})
+	return route, err
+}
+
+// CreateInTx is Create within the caller's transaction. Extra details are
+// added to the audit event.
+func (s *Store) CreateInTx(ctx context.Context, tx pgx.Tx, actor string, c Content, visibility string, details map[string]any) (Route, error) {
 	if err := validateVisibility(visibility); err != nil {
 		return Route{}, err
 	}
@@ -88,33 +100,31 @@ func (s *Store) Create(ctx context.Context, actor string, c Content, visibility 
 		return Route{}, err
 	}
 	id := uuid.NewV7().String()
-	var route Route
-	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `
-			INSERT INTO routes (id, owner_id, visibility, name, description, original_filename,
-				distance_m, ascent_m, descent_m, min_elevation_m, max_elevation_m, has_elevation,
-				point_count, started_at, geom, elevation_profile)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-				ST_SetSRID(ST_GeomFromGeoJSON($15), 4326), $16)`,
-			id, actor, visibility, c.Name, c.Description, c.OriginalFilename, c.DistanceM, c.AscentM,
-			c.DescentM, c.MinElevationM, c.MaxElevationM, c.HasElevation, c.PointCount, c.StartedAt,
-			string(c.Geometry), string(profile))
-		if err != nil {
-			return fmt.Errorf("insert route: %w", err)
-		}
-		if err := snapshot(ctx, tx, id, "create", actor, nil); err != nil {
-			return err
-		}
-		if err := audit.Record(ctx, tx, audit.Event{
-			ActorID: actor, OwnerID: actor, Action: "route.create", SubjectType: "route", SubjectID: id,
-			Details: map[string]any{"name": c.Name, "visibility": visibility},
-		}); err != nil {
-			return err
-		}
-		route, err = s.get(ctx, tx, actor, id)
-		return err
-	})
-	return route, err
+	_, err = tx.Exec(ctx, `
+		INSERT INTO routes (id, owner_id, visibility, name, description, original_filename,
+			distance_m, ascent_m, descent_m, min_elevation_m, max_elevation_m, has_elevation,
+			point_count, started_at, geom, elevation_profile)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+			ST_SetSRID(ST_GeomFromGeoJSON($15), 4326), $16)`,
+		id, actor, visibility, c.Name, c.Description, c.OriginalFilename, c.DistanceM, c.AscentM,
+		c.DescentM, c.MinElevationM, c.MaxElevationM, c.HasElevation, c.PointCount, c.StartedAt,
+		string(c.Geometry), string(profile))
+	if err != nil {
+		return Route{}, fmt.Errorf("insert route: %w", err)
+	}
+	if err := snapshot(ctx, tx, id, "create", actor, nil); err != nil {
+		return Route{}, err
+	}
+	d := map[string]any{"name": c.Name, "visibility": visibility}
+	for k, v := range details {
+		d[k] = v
+	}
+	if err := audit.Record(ctx, tx, audit.Event{
+		ActorID: actor, OwnerID: actor, Action: "route.create", SubjectType: "route", SubjectID: id, Details: d,
+	}); err != nil {
+		return Route{}, err
+	}
+	return s.get(ctx, tx, actor, id)
 }
 
 // snapshot copies the route's current content into route_versions.
@@ -269,47 +279,57 @@ func (s *Store) UpdateMetadata(ctx context.Context, actor, id string, upd Metada
 // keepFileInfo is true (GeoJSON edits) the original file name and start time
 // are kept, since the new geometry has neither.
 func (s *Store) ReplaceGeometry(ctx context.Context, actor, id string, c Content, keepFileInfo bool, ifVersion int) (Route, error) {
+	var route Route
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		var err error
+		route, err = s.ReplaceGeometryInTx(ctx, tx, actor, id, c, keepFileInfo, ifVersion, nil)
+		return err
+	})
+	return route, err
+}
+
+// ReplaceGeometryInTx is ReplaceGeometry within the caller's transaction.
+// Extra details are added to the audit event.
+func (s *Store) ReplaceGeometryInTx(ctx context.Context, tx pgx.Tx, actor, id string, c Content, keepFileInfo bool, ifVersion int, details map[string]any) (Route, error) {
 	profile, err := json.Marshal(c.Profile)
 	if err != nil {
 		return Route{}, err
 	}
-	var route Route
-	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
-		l, err := lockForChange(ctx, tx, actor, id, ifVersion, false)
-		if err != nil {
-			return err
-		}
-		_, err = tx.Exec(ctx, `
-			UPDATE routes SET
-				original_filename = CASE WHEN $2 THEN original_filename ELSE $3 END,
-				started_at        = CASE WHEN $2 THEN started_at ELSE $4 END,
-				distance_m = $5, ascent_m = $6, descent_m = $7, min_elevation_m = $8,
-				max_elevation_m = $9, has_elevation = $10, point_count = $11,
-				geom = ST_SetSRID(ST_GeomFromGeoJSON($12), 4326), elevation_profile = $13,
-				version = version + 1, updated_at = now()
-			WHERE id = $1`,
-			id, keepFileInfo, c.OriginalFilename, c.StartedAt, c.DistanceM, c.AscentM, c.DescentM,
-			c.MinElevationM, c.MaxElevationM, c.HasElevation, c.PointCount, string(c.Geometry), string(profile))
-		if err != nil {
-			return fmt.Errorf("update geometry: %w", err)
-		}
-		if err := snapshot(ctx, tx, id, "geometry", actor, nil); err != nil {
-			return err
-		}
-		source := "gpx"
-		if keepFileInfo {
-			source = "geojson"
-		}
-		if err := audit.Record(ctx, tx, audit.Event{
-			ActorID: actor, OwnerID: l.OwnerID, Action: "route.geometry_update", SubjectType: "route", SubjectID: id,
-			Details: map[string]any{"version": l.Version + 1, "source": source, "point_count": c.PointCount},
-		}); err != nil {
-			return err
-		}
-		route, err = s.get(ctx, tx, actor, id)
-		return err
-	})
-	return route, err
+	l, err := lockForChange(ctx, tx, actor, id, ifVersion, false)
+	if err != nil {
+		return Route{}, err
+	}
+	_, err = tx.Exec(ctx, `
+		UPDATE routes SET
+			original_filename = CASE WHEN $2 THEN original_filename ELSE $3 END,
+			started_at        = CASE WHEN $2 THEN started_at ELSE $4 END,
+			distance_m = $5, ascent_m = $6, descent_m = $7, min_elevation_m = $8,
+			max_elevation_m = $9, has_elevation = $10, point_count = $11,
+			geom = ST_SetSRID(ST_GeomFromGeoJSON($12), 4326), elevation_profile = $13,
+			version = version + 1, updated_at = now()
+		WHERE id = $1`,
+		id, keepFileInfo, c.OriginalFilename, c.StartedAt, c.DistanceM, c.AscentM, c.DescentM,
+		c.MinElevationM, c.MaxElevationM, c.HasElevation, c.PointCount, string(c.Geometry), string(profile))
+	if err != nil {
+		return Route{}, fmt.Errorf("update geometry: %w", err)
+	}
+	if err := snapshot(ctx, tx, id, "geometry", actor, nil); err != nil {
+		return Route{}, err
+	}
+	source := "gpx"
+	if keepFileInfo {
+		source = "geojson"
+	}
+	d := map[string]any{"version": l.Version + 1, "source": source, "point_count": c.PointCount}
+	for k, v := range details {
+		d[k] = v
+	}
+	if err := audit.Record(ctx, tx, audit.Event{
+		ActorID: actor, OwnerID: l.OwnerID, Action: "route.geometry_update", SubjectType: "route", SubjectID: id, Details: d,
+	}); err != nil {
+		return Route{}, err
+	}
+	return s.get(ctx, tx, actor, id)
 }
 
 // Restore makes an old version current again by saving it as a new version.
