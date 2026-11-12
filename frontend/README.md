@@ -6,6 +6,7 @@ Next.js app for the Travel Docs API (see the [main README](../README.md)).
 npm ci
 NEXT_PUBLIC_API_URL=http://localhost:8080 npm run dev   # http://localhost:3000
 npm run lint && npx tsc --noEmit && npm test && npm run build
+npm run e2e   # Playwright smoke test: starts the API and a production build (needs `docker compose up -d db`)
 ```
 
 - `NEXT_PUBLIC_API_URL` (default `http://localhost:8080`) is built into the bundle; the API must allow this app's origin in `CORS_ORIGINS`.
