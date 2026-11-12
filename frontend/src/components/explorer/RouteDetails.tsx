@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ApiError, api } from "@/lib/api";
+import { ApiError, collectionsApi, routesApi } from "@/lib/api";
 import { date, dateTime, km, meters } from "@/lib/format";
-import type { Collection, Page, ProfilePoint, Route, RouteVersion, User } from "@/lib/types";
+import type { Collection, ProfilePoint, Route, RouteVersion, User } from "@/lib/types";
 import { ElevationChart } from "../ElevationChart";
 import { ImportForm } from "../ImportForm";
 import { SharesDialog } from "../SharesDialog";
@@ -80,7 +80,7 @@ export function RouteDetails({
               question={`Remove “${r.name}” from “${collection.name}”? The route itself is not deleted.`}
               confirmLabel="Remove"
               onConfirm={async () => {
-                await api(`/collections/${collection.id}/routes/${r.id}`, { method: "DELETE" });
+                await collectionsApi.removeRoute(collection.id, r.id);
                 onRemovedFromCollection();
               }}
             />
@@ -91,7 +91,7 @@ export function RouteDetails({
               className="danger"
               question={`Delete “${r.name}” and its history?`}
               onConfirm={async () => {
-                await api(`/routes/${r.id}`, { method: "DELETE" });
+                await routesApi.remove(r.id);
                 onDeleted();
               }}
             />
@@ -183,11 +183,7 @@ function EditRouteDialog({
           const fd = Object.fromEntries(new FormData(e.currentTarget));
           setBusy(true);
           try {
-            const updated = await api<Route>(`/routes/${r.id}`, {
-              method: "PATCH",
-              json: fd,
-              headers: { "If-Match": `"${r.version}"` },
-            });
+            const updated = await routesApi.update(r.id, r.version, fd);
             onClose();
             onChanged(updated);
           } catch (err) {
@@ -247,7 +243,8 @@ function HistoryDialog({
   const canEdit = r.my_role === "owner" || r.my_role === "editor";
   useEffect(() => {
     let active = true;
-    api<{ items: RouteVersion[] }>(`/routes/${r.id}/versions`)
+    routesApi
+      .versions(r.id)
       .then((res) => active && setVersions(res.items))
       .catch((e) => active && setMsg({ text: errorMessage(e), kind: "error" }));
     return () => {
@@ -278,7 +275,7 @@ function HistoryDialog({
                   className="link"
                   onClick={() =>
                     run(async () => {
-                      onPreview(await api<GeoJSON.Feature>(`/routes/${r.id}/versions/${v.version}/geometry`));
+                      onPreview(await routesApi.versionGeometry(r.id, v.version));
                     })
                   }
                 >
@@ -308,10 +305,7 @@ function HistoryDialog({
               run(async () => {
                 try {
                   onChanged(
-                    await api<Route>(`/routes/${r.id}/versions/${restoring}/restore`, {
-                      method: "POST",
-                      headers: { "If-Match": `"${r.version}"` },
-                    }),
+                    await routesApi.restore(r.id, restoring, r.version),
                   );
                 } catch (e) {
                   if (e instanceof ApiError && e.status === 412) onChanged(null);
@@ -336,8 +330,8 @@ function AddToCollectionDialog({ route: r, onClose }: { route: Route; onClose: (
   useEffect(() => {
     let active = true;
     Promise.all([
-      api<Page<Collection>>("/collections?scope=editable&page_size=100"),
-      api<Page<Collection>>(`/collections?scope=all&page_size=100&route_id=${r.id}`),
+      collectionsApi.list({ scope: "editable", page_size: 100 }),
+      collectionsApi.list({ scope: "all", page_size: 100, route_id: r.id }),
     ])
       .then(([editable, already]) => {
         if (!active) return;
@@ -360,10 +354,10 @@ function AddToCollectionDialog({ route: r, onClose }: { route: Route; onClose: (
             let id = String(fd.get("collection") || "");
             const newName = String(fd.get("new_name") || "").trim();
             if (newName) {
-              id = (await api<Collection>("/collections", { method: "POST", json: { name: newName } })).id;
+              id = (await collectionsApi.create({ name: newName })).id;
             }
             if (!id) throw new Error("Choose a collection or enter a name for a new one.");
-            await api(`/collections/${id}/routes/${r.id}`, { method: "PUT" });
+            await collectionsApi.addRoute(id, r.id);
             onClose();
           });
         }}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { api, newIdempotencyKey, upload } from "@/lib/api";
+import { importsApi, newIdempotencyKey } from "@/lib/api";
 import { bytes } from "@/lib/format";
 import { jobFinished, stageLabels, useJob } from "@/lib/jobs";
 import type { ImportJob } from "@/lib/types";
@@ -64,7 +64,7 @@ export function ImportForm({
         run(async () => {
           setUploadPct(0);
           try {
-            const res = await upload<ImportJob>("/import-jobs", fd, {
+            const res = await importsApi.upload(fd, {
               headers,
               onProgress: (loaded, total) => setUploadPct(Math.round((100 * loaded) / total)),
             });
@@ -137,7 +137,7 @@ export function JobStatus({ job, replayed }: { job: ImportJob; replayed?: boolea
             type="button"
             className="link"
             disabled={pending}
-            onClick={() => run(() => api(`/import-jobs/${job.id}/cancel`, { method: "POST" }).then(() => undefined))}
+            onClick={() => run(() => importsApi.cancel(job.id).then(() => undefined))}
           >
             Cancel
           </button>
@@ -147,7 +147,7 @@ export function JobStatus({ job, replayed }: { job: ImportJob; replayed?: boolea
             type="button"
             className="link"
             disabled={pending}
-            onClick={() => run(() => api(`/import-jobs/${job.id}/retry`, { method: "POST" }).then(() => undefined))}
+            onClick={() => run(() => importsApi.retry(job.id).then(() => undefined))}
           >
             Retry
           </button>

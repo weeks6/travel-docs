@@ -185,3 +185,16 @@ export type UserEvent =
   | { type: "job"; job: ImportJob }
   | { type: "invitation"; invitation: Invitation }
   | { type: "connected" }; // (re)connected: reload state that may be stale
+
+// Messages from a trip's WebSocket (GET /trips/{id}/ws). The event types
+// match trips.Event* on the server.
+export type TripMessage =
+  | { type: "ready"; user_id: string; trip: Trip; participants: Participant[] }
+  | ({ type: "location"; user_id: string } & Position)
+  | { type: "presence"; user_id: string; online: boolean; at: string }
+  | { type: "trip" } // details or status changed: reload the trip
+  | { type: "participants" } // reload the participants
+  | { type: "removed"; user_id: string } // left or was removed
+  | { type: "deleted" }
+  | { type: "error"; error: string; code?: string }
+  | { type: "pong" };

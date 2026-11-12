@@ -23,4 +23,4 @@ lint:
 	go vet ./...
 
 frontend-check:
-	cd frontend && npm run lint && npx tsc --noEmit && npm run build
+	cd frontend && npm run lint && npx tsc --noEmit && npm test && npm run build

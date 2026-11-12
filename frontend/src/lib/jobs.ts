@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api } from "./api";
+import { importsApi } from "./api";
 import { useEventsConnected, useUserEvents } from "./events";
 import type { ImportJob } from "./types";
 
@@ -40,7 +40,8 @@ export function useJob(initial: ImportJob | null) {
 
   const reload = useCallback(() => {
     if (!id) return;
-    api<ImportJob>("/import-jobs/" + id)
+    importsApi
+      .get(id)
       .then((j) => setJob((cur) => (cur && cur.id === j.id ? newerJob(cur, j) : cur)))
       .catch(() => undefined);
   }, [id]);

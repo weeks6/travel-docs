@@ -2,13 +2,13 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, newIdempotencyKey, upload } from "@/lib/api";
+import { importsApi, newIdempotencyKey } from "@/lib/api";
 import { useEventsConnected, useUserEvents } from "@/lib/events";
 import { bytes, dateTime } from "@/lib/format";
 import { jobFinished, newerJob, stageLabels } from "@/lib/jobs";
 import { useSession } from "@/lib/session";
 import type { ImportJob, Page } from "@/lib/types";
-import { LoginPrompt } from "./Header";
+import { LoginPrompt } from "./account/LoginDialog";
 import { MAX_IMPORT_MB } from "./ImportForm";
 import { Pager, ProgressBar, errorMessage, useAction } from "./ui";
 
@@ -47,8 +47,8 @@ function Imports() {
 
   useEffect(() => {
     let active = true;
-    const status = filter === "all" ? "" : "&status=" + filter;
-    api<Page<ImportJob>>(`/import-jobs?page=${page}&page_size=20${status}`)
+    importsApi
+      .list({ page, page_size: 20, status: filter === "all" ? "" : filter })
       .then((r) => {
         if (!active) return;
         setRes(r);
@@ -172,7 +172,7 @@ function BulkUpload({ onQueued }: { onQueued: () => void }) {
         fd.set("visibility", visibility);
         update(item.key, { error: "", progress: 0 });
         try {
-          await upload<ImportJob>("/import-jobs", fd, {
+          await importsApi.upload(fd, {
             headers: { "Idempotency-Key": item.key },
             onProgress: (loaded, total) => update(item.key, { progress: Math.round((100 * loaded) / total) }),
           });
@@ -239,9 +239,9 @@ function BulkUpload({ onQueued }: { onQueued: () => void }) {
 
 function JobRow({ job: j, onChanged }: { job: ImportJob; onChanged: () => void }) {
   const { pending, msg, run } = useAction();
-  const act = (path: string, method = "POST") =>
+  const act = (call: (id: string) => Promise<unknown>) =>
     run(async () => {
-      await api(`/import-jobs/${j.id}${path}`, { method });
+      await call(j.id);
       onChanged();
     });
   const active = !jobFinished(j);
@@ -271,17 +271,17 @@ function JobRow({ job: j, onChanged }: { job: ImportJob; onChanged: () => void }
           </Link>
         )}
         {active && !j.cancel_requested && (
-          <button type="button" className="link" disabled={pending} onClick={() => act("/cancel")}>
+          <button type="button" className="link" disabled={pending} onClick={() => act(importsApi.cancel)}>
             Cancel
           </button>
         )}
         {(j.status === "failed" || j.status === "canceled") && (
-          <button type="button" className="link" disabled={pending} onClick={() => act("/retry")}>
+          <button type="button" className="link" disabled={pending} onClick={() => act(importsApi.retry)}>
             Retry
           </button>
         )}
         {!active && (
-          <button type="button" className="link" disabled={pending} onClick={() => act("", "DELETE")}>
+          <button type="button" className="link" disabled={pending} onClick={() => act(importsApi.remove)}>
             Remove
           </button>
         )}

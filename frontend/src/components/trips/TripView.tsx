@@ -2,23 +2,28 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ApiError, api } from "@/lib/api";
-import { ago, dateTime } from "@/lib/format";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { ApiError, routesApi, tripsApi } from "@/lib/api";
+import { ago } from "@/lib/format";
 import { useSession } from "@/lib/session";
-import { useTripSocket, type TripMessage } from "@/lib/tripSocket";
-import type { Invitation, Participant, Position, Trip, User } from "@/lib/types";
-import { LoginPrompt } from "../Header";
+import { initialTripState, tracksFromHistory, tripReducer } from "@/lib/tripState";
+import { useTripSocket } from "@/lib/tripSocket";
+import type { Participant, Position, Trip, TripMessage, User } from "@/lib/types";
+import { LoginPrompt } from "../account/LoginDialog";
 import Map, { type MapLayer, type MapMarker } from "../Map";
-import { ConfirmButton, Modal, Msg, errorMessage, useAction } from "../ui";
-import { TripFormDialog, statusLabels } from "./TripsPage";
+import { ConfirmButton, Msg, errorMessage, useAction } from "../ui";
+import { TripFormDialog, statusLabels } from "./TripFormDialog";
+import { InviteDialog } from "./InviteDialog";
 
 // Matches the server: a participant without a sign of life for this long is offline.
 const PRESENCE_TIMEOUT = 75_000;
+
 // Positions older than this are drawn faded.
 const STALE_POSITION = 5 * 60_000;
+
 // The server accepts 2 updates per second; one every 2 s is plenty for walking.
 const MIN_SEND_INTERVAL = 2000;
+
 const COLORS = ["#2563eb", "#dc2626", "#16a34a", "#9333ea", "#ea580c", "#0891b2", "#db2777", "#65a30d", "#7c3aed", "#ca8a04"];
 
 export function TripView() {
@@ -35,34 +40,34 @@ export function TripView() {
   return <TripLive key={id + user.id} id={id} me={user} />;
 }
 
-type Tracks = Record<string, [number, number][]>; // user → [lon, lat] points
-
 function TripLive({ id, me }: { id: string; me: User }) {
   const router = useRouter();
-  const [trip, setTrip] = useState<Trip | null>(null);
-  const [participants, setParticipants] = useState<Participant[]>([]);
-  const [signals, setSignals] = useState<Record<string, number>>({}); // last sign of life
+  // Trip, participants and presence, updated by live messages (lib/tripState).
+  const [state, dispatch] = useReducer(tripReducer, initialTripState);
+  const { trip, participants, signals, tracks, gone, notice } = state;
+  const setTrip = useCallback((t: Trip) => dispatch({ type: "trip", trip: t }), []);
+  const setNotice = useCallback((text: string) => dispatch({ type: "notice", text }), []);
   const [route, setRoute] = useState<{ id: string; feature: GeoJSON.Feature } | null>(null);
-  const [tracks, setTracks] = useState<Tracks | null>(null);
   const [fitKey, setFitKey] = useState(0);
-  const [notice, setNotice] = useState("");
-  const [gone, setGone] = useState("");
   const [now, setNow] = useState(() => Date.now());
   const [sharing, setSharing] = useState<"off" | "gps" | "simulate">("off");
   const [dialog, setDialog] = useState<null | "edit" | "invite">(null);
   const fitted = useRef(false);
 
   const loadTrip = useCallback(() => {
-    api<Trip>(`/trips/${id}`)
+    tripsApi
+      .get(id)
       .then(setTrip)
       .catch((e) => {
-        if (e instanceof ApiError && e.status === 404) setGone("This trip doesn't exist, or you are not part of it.");
+        if (e instanceof ApiError && e.status === 404)
+          dispatch({ type: "gone", reason: "This trip doesn't exist, or you are not part of it." });
         else setNotice(errorMessage(e));
       });
-  }, [id]);
+  }, [id, setTrip, setNotice]);
   const loadParticipants = useCallback(() => {
-    api<{ items: Participant[] }>(`/trips/${id}/participants`)
-      .then((r) => setParticipants(r.items))
+    tripsApi
+      .participants(id)
+      .then((r) => dispatch({ type: "participants", participants: r.items }))
       .catch(() => undefined);
   }, [id]);
   useEffect(() => {
@@ -70,65 +75,12 @@ function TripLive({ id, me }: { id: string; me: User }) {
   }, [loadTrip]);
 
   const onMessage = (m: TripMessage) => {
-    const t = Date.now();
-    switch (m.type) {
-      case "ready": {
-        const list = m.participants as Participant[];
-        setTrip(m.trip as Trip);
-        setParticipants(list);
-        setSignals(Object.fromEntries(list.filter((p) => p.online).map((p) => [p.user_id, t])));
-        if (!fitted.current) {
-          fitted.current = true;
-          setFitKey((k) => k + 1);
-        }
-        break;
-      }
-      case "location": {
-        const userID = m.user_id as string;
-        const pos = m as unknown as Position;
-        const p: Position = {
-          lat: pos.lat,
-          lon: pos.lon,
-          ele: pos.ele,
-          accuracy_m: pos.accuracy_m,
-          speed_mps: pos.speed_mps,
-          heading_deg: pos.heading_deg,
-          recorded_at: pos.recorded_at,
-        };
-        setParticipants((cur) =>
-          cur.map((x) =>
-            x.user_id === userID && (!x.last_position || x.last_position.recorded_at <= p.recorded_at)
-              ? { ...x, last_position: p, online: true }
-              : x,
-          ),
-        );
-        setSignals((s) => ({ ...s, [userID]: t }));
-        setTracks((tr) => (tr ? { ...tr, [userID]: [...(tr[userID] || []), [p.lon, p.lat]] } : tr));
-        break;
-      }
-      case "presence": {
-        const userID = m.user_id as string;
-        const online = m.online === true;
-        setParticipants((cur) => cur.map((x) => (x.user_id === userID ? { ...x, online, last_seen_at: m.at as string } : x)));
-        setSignals((s) => ({ ...s, [userID]: t }));
-        break;
-      }
-      case "trip":
-        loadTrip();
-        break;
-      case "participants":
-        loadParticipants();
-        break;
-      case "removed":
-        if (m.user_id === me.id) setGone("You are no longer a participant of this trip.");
-        break;
-      case "deleted":
-        setGone("This trip was deleted.");
-        break;
-      case "error":
-        setNotice(String(m.error));
-        break;
-    }
+    dispatch({ type: "message", message: m, me: me.id, at: Date.now() });
+    if (m.type === "ready" && !fitted.current) {
+      fitted.current = true;
+      setFitKey((k) => k + 1);
+    } else if (m.type === "trip") loadTrip();
+    else if (m.type === "participants") loadParticipants();
   };
   const socket = useTripSocket(id, gone === "", onMessage);
 
@@ -143,7 +95,8 @@ function TripLive({ id, me }: { id: string; me: User }) {
   useEffect(() => {
     if (!routeID) return;
     let active = true;
-    api<GeoJSON.Feature>(`/routes/${routeID}/geometry`)
+    routesApi
+      .geometry(routeID)
       .then((f) => {
         if (!active) return;
         setRoute({ id: routeID, feature: f });
@@ -209,23 +162,16 @@ function TripLive({ id, me }: { id: string; me: User }) {
       report({ lat, lon, accuracy_m: 8, speed_mps: 1.4, heading_deg: ((heading * 180) / Math.PI + 360) % 360 });
     }, MIN_SEND_INTERVAL);
     return () => clearInterval(tick);
-  }, [live, sharing, send]);
+  }, [live, sharing, send, setNotice]);
 
   const toggleTracks = () => {
     if (tracks) {
-      setTracks(null);
+      dispatch({ type: "tracks", tracks: null });
       return;
     }
-    api<GeoJSON.FeatureCollection>(`/trips/${id}/history`)
-      .then((fc) => {
-        const t: Tracks = {};
-        for (const f of fc.features) {
-          const userID = (f.properties as { user_id: string }).user_id;
-          if (f.geometry.type === "LineString") t[userID] = f.geometry.coordinates as [number, number][];
-          else if (f.geometry.type === "Point") t[userID] = [f.geometry.coordinates as [number, number]];
-        }
-        setTracks(t);
-      })
+    tripsApi
+      .history(id)
+      .then((fc) => dispatch({ type: "tracks", tracks: tracksFromHistory(fc) }))
       .catch((e) => setNotice(errorMessage(e)));
   };
 
@@ -307,7 +253,7 @@ function TripLive({ id, me }: { id: string; me: User }) {
                 <ConfirmButton
                   label="End trip"
                   question="End the trip? Location sharing stops for everyone; the history stays available."
-                  onConfirm={async () => setTrip(await api<Trip>(`/trips/${trip.id}/end`, { method: "POST" }))}
+                  onConfirm={async () => setTrip(await tripsApi.end(trip.id))}
                 />
               )}
               {trip.status !== "ended" && (
@@ -323,7 +269,7 @@ function TripLive({ id, me }: { id: string; me: User }) {
                 className="danger"
                 question={`Delete “${trip.name}” with all its location history?`}
                 onConfirm={async () => {
-                  await api(`/trips/${trip.id}`, { method: "DELETE" });
+                  await tripsApi.remove(trip.id);
                   router.push("/trips");
                 }}
               />
@@ -405,7 +351,7 @@ function TripLive({ id, me }: { id: string; me: User }) {
                     label="Remove"
                     className="link"
                     question={`Remove ${p.display_name} from the trip? Their location history in this trip is deleted.`}
-                    onConfirm={() => api(`/trips/${trip.id}/participants/${p.user_id}`, { method: "DELETE" })}
+                    onConfirm={() => tripsApi.removeParticipant(trip.id, p.user_id)}
                   />
                 )}
               </li>
@@ -417,7 +363,7 @@ function TripLive({ id, me }: { id: string; me: User }) {
               className="danger"
               question="Leave this trip? Your location history in it is deleted."
               onConfirm={async () => {
-                await api(`/trips/${trip.id}/participants/${me.id}`, { method: "DELETE" });
+                await tripsApi.removeParticipant(trip.id, me.id);
                 router.push("/trips");
               }}
             />
@@ -470,93 +416,11 @@ function StatusButton({
         type="button"
         className="primary"
         disabled={pending}
-        onClick={() => run(async () => onDone(await api<Trip>(`/trips/${tripId}/${action}`, { method: "POST" })))}
+        onClick={() => run(async () => onDone(await tripsApi[action](tripId)))}
       >
         {label}
       </button>
       <Msg msg={msg} />
     </>
-  );
-}
-
-function InviteDialog({ trip, onClose }: { trip: Trip; onClose: () => void }) {
-  const [invitations, setInvitations] = useState<Invitation[] | null>(null);
-  const [version, setVersion] = useState(0);
-  const invite = useAction();
-  const revoke = useAction();
-  useEffect(() => {
-    let active = true;
-    api<{ items: Invitation[] }>(`/trips/${trip.id}/invitations`)
-      .then((r) => active && setInvitations(r.items))
-      .catch(() => undefined);
-    return () => {
-      active = false;
-    };
-  }, [trip.id, version]);
-
-  return (
-    <Modal title={`Invite to “${trip.name}”`} onClose={onClose}>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          const form = e.currentTarget;
-          const email = String(new FormData(form).get("email") || "");
-          invite.run(async () => {
-            await api(`/trips/${trip.id}/invitations`, { method: "POST", json: { email } });
-            form.reset();
-            setVersion((v) => v + 1);
-            return "Invitation sent";
-          });
-        }}
-      >
-        <div className="row">
-          <input type="email" name="email" placeholder="Their account email" required />
-          <button type="submit" className="primary" disabled={invite.pending}>
-            Invite
-          </button>
-        </div>
-        <Msg msg={invite.msg} />
-      </form>
-      <p className="meta">They see the invitation under Trips and can join or decline.</p>
-      <h4>Invitations</h4>
-      <table className="table">
-        <tbody>
-          {invitations?.map((inv) => (
-            <tr key={inv.id}>
-              <td>
-                {inv.invitee_name}
-                <div className="meta">
-                  {inv.invitee_email} · {dateTime(inv.created_at)}
-                </div>
-              </td>
-              <td>
-                {inv.status}{" "}
-                {inv.status === "pending" && (
-                  <button
-                    type="button"
-                    className="link"
-                    disabled={revoke.pending}
-                    onClick={() =>
-                      revoke.run(async () => {
-                        await api(`/trips/${trip.id}/invitations/${inv.id}`, { method: "DELETE" });
-                        setVersion((v) => v + 1);
-                      })
-                    }
-                  >
-                    Withdraw
-                  </button>
-                )}
-              </td>
-            </tr>
-          ))}
-          {invitations?.length === 0 && (
-            <tr>
-              <td className="meta">No invitations yet.</td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-      <Msg msg={revoke.msg} />
-    </Modal>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { sharesApi } from "@/lib/api";
 import type { Share } from "@/lib/types";
 import { Modal, Msg, errorMessage, useAction } from "./ui";
 
@@ -15,7 +15,7 @@ export function SharesDialog({
   item: { id: string; name: string };
   onClose: () => void;
 }) {
-  const base = `/${kind === "route" ? "routes" : "collections"}/${item.id}/shares`;
+  const endpoint = useMemo(() => sharesApi(kind, item.id), [kind, item.id]);
   const [shares, setShares] = useState<Share[] | null>(null);
   const [loadError, setLoadError] = useState("");
   const add = useAction();
@@ -23,10 +23,11 @@ export function SharesDialog({
 
   const load = useCallback(
     () =>
-      api<{ items: Share[] }>(base)
+      endpoint
+        .list()
         .then((res) => setShares(res.items))
         .catch((e) => setLoadError(errorMessage(e))),
-    [base],
+    [endpoint],
   );
   useEffect(() => {
     load();
@@ -57,7 +58,7 @@ export function SharesDialog({
                   disabled={remove.pending}
                   onClick={() =>
                     remove.run(async () => {
-                      await api(`${base}/${s.user_id}`, { method: "DELETE" });
+                      await endpoint.remove(s.user_id);
                       await load();
                     })
                   }
@@ -82,7 +83,7 @@ export function SharesDialog({
           const form = e.currentTarget;
           const fd = Object.fromEntries(new FormData(form));
           add.run(async () => {
-            await api(base, { method: "PUT", json: fd });
+            await endpoint.put(fd);
             form.reset();
             await load();
             return "Shared";

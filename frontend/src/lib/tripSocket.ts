@@ -8,13 +8,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getAccessToken, refreshSession } from "./api";
 import { WS_URL } from "./config";
+import type { TripMessage } from "./types";
+
+export type { TripMessage };
 
 export type SocketState = "connecting" | "live" | "reconnecting" | "closed";
 
-export interface TripMessage {
-  type: string;
-  [key: string]: unknown;
-}
 
 const CLOSE_UNAUTHORIZED = 4001;
 const CLOSE_FORBIDDEN = 4003;

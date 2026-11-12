@@ -5,8 +5,8 @@
 // of /auth/refresh and /auth/logout (the API uses no cookies). Every refresh
 // rotates the refresh token, so concurrent refreshes share one request.
 
-import { API_URL } from "./config";
-import type { Session, User } from "./types";
+import { API_URL } from "../config";
+import type { Session, User } from "../types";
 
 export class ApiError extends Error {
   constructor(
