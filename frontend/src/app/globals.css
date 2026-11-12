@@ -171,9 +171,27 @@
   h4 {
     @apply font-heading tracking-tight;
   }
-  button:not(:disabled),
-  [role="button"]:not(:disabled) {
+  /* Everything clickable shows a pointer: buttons, menu items, tabs,
+     options, selects, checkboxes, radios, file pickers and their labels. */
+  :is(
+      button,
+      select,
+      summary,
+      [role="button"],
+      [role="tab"],
+      [role="option"],
+      [role="menuitem"],
+      [role="menuitemradio"],
+      [role="menuitemcheckbox"],
+      input[type="checkbox"],
+      input[type="radio"],
+      input[type="file"],
+      label:has(> input:is([type="checkbox"], [type="radio"], [type="file"]))
+    ):not(:disabled, [data-disabled], [aria-disabled="true"]) {
     cursor: pointer;
+  }
+  :is(button, select, input, [role="menuitem"], [role="option"], [role="tab"]):is(:disabled, [data-disabled]) {
+    cursor: not-allowed;
   }
   ::selection {
     @apply bg-primary/20;

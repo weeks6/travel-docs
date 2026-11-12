@@ -44,3 +44,11 @@ test("theme follows the system until chosen, and the choice sticks", async ({ pa
 
   expect(errors.filter((e) => /hydrat/i.test(e))).toEqual([]);
 });
+
+test("clickable controls show a pointer cursor", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("tab", { name: "Collections" })).toHaveCSS("cursor", "pointer");
+  await expect(page.locator("select").first()).toHaveCSS("cursor", "pointer");
+  await page.getByRole("button", { name: "Theme" }).click();
+  await expect(page.getByRole("menuitemradio", { name: "Dark" })).toHaveCSS("cursor", "pointer");
+});
