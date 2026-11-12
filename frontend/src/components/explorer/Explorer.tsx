@@ -3,6 +3,7 @@
 import { FolderOpen, Route as RouteIcon, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, routesApi } from "@/lib/api";
+import { type MapView, useRouteClusters } from "@/lib/route-map";
 import { useSession } from "@/lib/session";
 import type { Collection, ProfilePoint, Route } from "@/lib/types";
 import Map, { previewStyle, routeStyle, type BBox, type MapLayer } from "../Map";
@@ -28,7 +29,8 @@ export function Explorer() {
   const [fitKey, setFitKey] = useState(0);
   const [reloadKey, setReloadKey] = useState(0);
   const [collection, setCollection] = useState<Collection | null>(null);
-  const [bbox, setBbox] = useState<BBox | null>(null);
+  const [view, setView] = useState<MapView | null>(null);
+  const bbox = view?.bbox ?? null;
   const [error, setError] = useState("");
   const request = useRef(0);
 
@@ -81,6 +83,28 @@ export function Explorer() {
     if (id) select(id);
   }, [ready, userID, select]);
 
+  // Every route the user can see, or the open collection's routes.
+  const collectionId = tab === "collections" ? collection?.id : undefined;
+  const mapFilter = useMemo(() => (collectionId ? { collection_id: collectionId } : {}), [collectionId]);
+  const { clusters, truncated } = useRouteClusters(view, mapFilter, reloadKey);
+  const onMoveEnd = useCallback((b: BBox, zoom: number) => setView({ bbox: b, zoom }), []);
+  const loadClusterRoutes = useCallback(
+    (b: BBox) => {
+      // A hair larger: the box of identical start points is a single point.
+      const pad = 1e-4;
+      return routesApi
+        .list({
+          ...(collectionId ? { collection_id: collectionId } : { scope: user ? "all" : "public" }),
+          starts_in: [b[0] - pad, b[1] - pad, b[2] + pad, b[3] + pad].map((n) => n.toFixed(6)).join(","),
+          page_size: 50,
+          sort: "name",
+          order: "asc",
+        })
+        .then((res) => res.items);
+    },
+    [collectionId, user],
+  );
+
   const layers = useMemo(() => {
     const l: MapLayer[] = [];
     if (selection) l.push({ key: "route", data: selection.feature, style: routeStyle });
@@ -92,8 +116,21 @@ export function Explorer() {
   return (
     <div className="relative flex flex-col gap-3 p-3 lg:h-full lg:p-0">
       {/* The map fills the page on large screens; panels float over it. */}
-      <div className="order-2 h-[55vh] overflow-hidden rounded-2xl ring-1 ring-foreground/8 lg:absolute lg:inset-0 lg:h-full lg:rounded-none lg:ring-0">
-        <Map layers={layers} fitKey={fitKey} onMoveEnd={setBbox} />
+      <div className="relative order-2 h-[55vh] overflow-hidden rounded-2xl ring-1 ring-foreground/8 lg:absolute lg:inset-0 lg:h-full lg:rounded-none lg:ring-0">
+        <Map
+          layers={layers}
+          fitKey={fitKey}
+          onMoveEnd={onMoveEnd}
+          clusters={clusters}
+          selectedRouteId={selection?.route.id}
+          onRouteClick={select}
+          loadClusterRoutes={loadClusterRoutes}
+        />
+        {truncated && (
+          <p className="pointer-events-none absolute top-4 left-1/2 z-[500] -translate-x-1/2 rounded-full bg-card/95 px-3 py-1 text-xs text-muted-foreground shadow-soft ring-1 ring-foreground/8 lg:left-[calc(50%+200px)]">
+            Showing the largest groups only; zoom in for more.
+          </p>
+        )}
       </div>
       <aside
         className={cn(

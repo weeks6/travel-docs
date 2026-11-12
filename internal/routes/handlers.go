@@ -38,6 +38,7 @@ func (h *Handler) Register(e *echo.Echo) {
 	g := e.Group("/routes")
 	g.POST("", h.upload, upload)
 	g.GET("", h.list)
+	g.GET("/map", h.mapClusters)
 	g.GET("/:id", h.get)
 	g.PATCH("/:id", h.update, small)
 	g.DELETE("/:id", h.delete)
@@ -117,11 +118,40 @@ func (h *Handler) list(c *echo.Context) error {
 	return c.JSON(http.StatusOK, res)
 }
 
+// mapClusters returns the routes starting inside bbox, clustered for the
+// map at zoom (see Store.Map). It takes the filters of list, with scope
+// defaulting to "all" (everything the caller can see); bbox and zoom are
+// required.
+func (h *Handler) mapClusters(c *echo.Context) error {
+	actor := auth.UserID(c.Request().Context())
+	q := c.QueryParams()
+	if q.Get("scope") == "" && q.Get("collection_id") == "" {
+		q.Set("scope", string(ScopeAll))
+	}
+	list, err := ParseListParams(q, actor != "")
+	if err != nil {
+		return err
+	}
+	if list.BBox == nil {
+		return apperr.New(apperr.Invalid, "bbox is required")
+	}
+	zoom, err := strconv.Atoi(q.Get("zoom"))
+	if err != nil || zoom < 0 || zoom > 22 {
+		return apperr.New(apperr.Invalid, "zoom must be an integer from 0 to 22")
+	}
+	res, err := h.Store.Map(c.Request().Context(), actor, MapParams{ListParams: list, Zoom: zoom})
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, res)
+}
+
 // ParseListParams reads pagination, filter and sort options:
 //
 //	page, page_size, scope=mine|shared|public|all, collection_id, name,
 //	min_distance_m, max_distance_m, min_ascent_m, max_ascent_m,
-//	bbox=minLon,minLat,maxLon,maxLat,
+//	bbox=minLon,minLat,maxLon,maxLat (routes crossing it),
+//	starts_in=minLon,minLat,maxLon,maxLat (routes starting in it),
 //	sort=created_at|updated_at|name|distance|ascent, order=asc|desc
 //
 // The default scope is "mine" for logged-in users and "public" otherwise,
@@ -173,12 +203,17 @@ func ParseListParams(q url.Values, loggedIn bool) (ListParams, error) {
 		}
 	}
 
-	if v := q.Get("bbox"); v != "" {
-		b, err := parseBBox(v)
-		if err != nil {
-			return p, err
+	for _, f := range []struct {
+		key string
+		dst **BBox
+	}{{"bbox", &p.BBox}, {"starts_in", &p.StartsIn}} {
+		if v := q.Get(f.key); v != "" {
+			b, err := parseBBox(f.key, v)
+			if err != nil {
+				return p, err
+			}
+			*f.dst = &b
 		}
-		p.BBox = &b
 	}
 
 	if v := q.Get("sort"); v != "" {
@@ -200,8 +235,8 @@ func ParseListParams(q url.Values, loggedIn bool) (ListParams, error) {
 	return p, nil
 }
 
-func parseBBox(v string) (BBox, error) {
-	errBBox := apperr.New(apperr.Invalid, "bbox must be minLon,minLat,maxLon,maxLat")
+func parseBBox(key, v string) (BBox, error) {
+	errBBox := apperr.New(apperr.Invalid, key+" must be minLon,minLat,maxLon,maxLat")
 	parts := strings.Split(v, ",")
 	if len(parts) != 4 {
 		return BBox{}, errBBox

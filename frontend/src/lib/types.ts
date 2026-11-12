@@ -25,6 +25,21 @@ export interface Page<T> {
   total_pages: number;
 }
 
+/** GET /routes/map: routes grouped by where they start. */
+export interface MapClusters {
+  clusters: MapCluster[];
+  total: number;
+  truncated: boolean;
+}
+
+export interface MapCluster {
+  lat: number;
+  lon: number;
+  count: number;
+  bbox: [number, number, number, number]; // of the start points: minLon, minLat, maxLon, maxLat
+  route?: { id: string; name: string; distance_m: number }; // when count is 1
+}
+
 export interface Route {
   id: string;
   name: string;

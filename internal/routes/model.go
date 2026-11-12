@@ -135,6 +135,7 @@ type ListParams struct {
 	MinAscentM   *float64
 	MaxAscentM   *float64
 	BBox         *BBox // routes that intersect this box
+	StartsIn     *BBox // routes that start in this box
 
 	Sort SortField
 	Desc bool
@@ -142,3 +143,41 @@ type ListParams struct {
 
 // ListResult is one page of routes.
 type ListResult = paging.Page[Route]
+
+// MapParams selects the routes to show on the map: the list filters
+// (paging and sorting are ignored), a required BBox and the map's zoom level.
+type MapParams struct {
+	ListParams
+	Zoom int // 0–22
+}
+
+// MapResult is what the map shows in a bounding box: routes grouped by
+// where they start.
+type MapResult struct {
+	Clusters []MapCluster `json:"clusters"`
+	// Total is the number of routes in Clusters.
+	Total int `json:"total"`
+	// Truncated is true when there were more clusters than one response
+	// holds (the largest are kept).
+	Truncated bool `json:"truncated"`
+}
+
+// MapCluster is a group of routes starting close to each other at the
+// requested zoom level, or a single route.
+type MapCluster struct {
+	Lat   float64 `json:"lat"` // center of the start points
+	Lon   float64 `json:"lon"`
+	Count int     `json:"count"`
+	// BBox of the start points: minLon, minLat, maxLon, maxLat. Zooming to it
+	// splits the cluster.
+	BBox [4]float64 `json:"bbox"`
+	// Route is set when Count is 1.
+	Route *MapRoute `json:"route,omitempty"`
+}
+
+// MapRoute identifies the single route of a cluster.
+type MapRoute struct {
+	ID        string  `json:"id"`
+	Name      string  `json:"name"`
+	DistanceM float64 `json:"distance_m"`
+}

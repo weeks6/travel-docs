@@ -425,48 +425,9 @@ var sortColumns = map[SortField]string{
 func (s *Store) List(ctx context.Context, actor string, p ListParams) (ListResult, error) {
 	page := paging.Params{Page: p.Page, PageSize: p.PageSize}
 	res := paging.Empty[Route](page)
-	if (p.Scope == ScopeMine || p.Scope == ScopeShared) && actor == "" {
-		return res, apperr.New(apperr.Unauthorized, "log in to list your own or shared routes")
-	}
-	actorID := nullID(actor)
-
-	filter := sq.And{sq.Expr("route_role(r.id, ?) IS NOT NULL", actorID)}
-	switch p.Scope {
-	case ScopeMine:
-		filter = append(filter, sq.Eq{"r.owner_id": actorID})
-	case ScopeShared:
-		filter = append(filter, sq.Expr(
-			"EXISTS (SELECT 1 FROM route_shares rs WHERE rs.route_id = r.id AND rs.user_id = ?)", actorID))
-	case ScopePublic:
-		filter = append(filter, sq.Eq{"r.visibility": VisibilityPublic})
-	}
-
-	if p.CollectionID != "" {
-		var role *string
-		err := s.pool.QueryRow(ctx, `SELECT collection_role($1, $2)`, p.CollectionID, actorID).Scan(&role)
-		if err != nil {
-			return res, err
-		}
-		if role == nil {
-			return res, apperr.New(apperr.NotFound, "collection not found")
-		}
-		filter = append(filter, sq.Expr(
-			"EXISTS (SELECT 1 FROM collection_routes cr WHERE cr.route_id = r.id AND cr.collection_id = ?)", p.CollectionID))
-	}
-	if p.Name != "" {
-		filter = append(filter, sq.ILike{"r.name": "%" + escapeLike(p.Name) + "%"})
-	}
-	if p.MinDistanceM != nil {
-		filter = append(filter, sq.GtOrEq{"r.distance_m": *p.MinDistanceM})
-	}
-	if p.MaxDistanceM != nil {
-		filter = append(filter, sq.LtOrEq{"r.distance_m": *p.MaxDistanceM})
-	}
-	if p.MinAscentM != nil {
-		filter = append(filter, sq.GtOrEq{"r.ascent_m": *p.MinAscentM})
-	}
-	if p.MaxAscentM != nil {
-		filter = append(filter, sq.LtOrEq{"r.ascent_m": *p.MaxAscentM})
+	filter, err := s.filter(ctx, actor, p)
+	if err != nil {
+		return res, err
 	}
 	if b := p.BBox; b != nil {
 		filter = append(filter, sq.Expr("ST_Intersects(r.geom, ST_MakeEnvelope(?, ?, ?, ?, 4326))",
@@ -486,6 +447,129 @@ func (s *Store) List(ctx context.Context, actor string, p ListParams) (ListResul
 		selectRoutes(actor).Where(filter).OrderBy(col+dir, "r.id"+dir), // id is a tie-breaker so pages are stable
 		page, scanRoute)
 }
+
+// filter selects the routes the actor can see that match p's scope,
+// collection and attribute filters, and starts_in (not the bounding box,
+// which List and Map match differently).
+func (s *Store) filter(ctx context.Context, actor string, p ListParams) (sq.And, error) {
+	if (p.Scope == ScopeMine || p.Scope == ScopeShared) && actor == "" {
+		return nil, apperr.New(apperr.Unauthorized, "log in to list your own or shared routes")
+	}
+	actorID := nullID(actor)
+
+	filter := sq.And{sq.Expr("route_role(r.id, ?) IS NOT NULL", actorID)}
+	switch p.Scope {
+	case ScopeMine:
+		filter = append(filter, sq.Eq{"r.owner_id": actorID})
+	case ScopeShared:
+		filter = append(filter, sq.Expr(
+			"EXISTS (SELECT 1 FROM route_shares rs WHERE rs.route_id = r.id AND rs.user_id = ?)", actorID))
+	case ScopePublic:
+		filter = append(filter, sq.Eq{"r.visibility": VisibilityPublic})
+	}
+
+	if p.CollectionID != "" {
+		var role *string
+		err := s.pool.QueryRow(ctx, `SELECT collection_role($1, $2)`, p.CollectionID, actorID).Scan(&role)
+		if err != nil {
+			return nil, err
+		}
+		if role == nil {
+			return nil, apperr.New(apperr.NotFound, "collection not found")
+		}
+		filter = append(filter, sq.Expr(
+			"EXISTS (SELECT 1 FROM collection_routes cr WHERE cr.route_id = r.id AND cr.collection_id = ?)", p.CollectionID))
+	}
+	if p.Name != "" {
+		filter = append(filter, sq.ILike{"r.name": "%" + escapeLike(p.Name) + "%"})
+	}
+	if p.MinDistanceM != nil {
+		filter = append(filter, sq.GtOrEq{"r.distance_m": *p.MinDistanceM})
+	}
+	if p.MaxDistanceM != nil {
+		filter = append(filter, sq.LtOrEq{"r.distance_m": *p.MaxDistanceM})
+	}
+	if p.MinAscentM != nil {
+		filter = append(filter, sq.GtOrEq{"r.ascent_m": *p.MinAscentM})
+	}
+	if p.MaxAscentM != nil {
+		filter = append(filter, sq.LtOrEq{"r.ascent_m": *p.MaxAscentM})
+	}
+	if b := p.StartsIn; b != nil {
+		filter = append(filter, sq.Expr("r.start_point && ST_MakeEnvelope(?, ?, ?, ?, 4326)",
+			b.MinLon, b.MinLat, b.MaxLon, b.MaxLat))
+	}
+	return filter, nil
+}
+
+// Map groups the start points of the routes the actor can see inside
+// p.BBox into clusters for the map at zoom level p.Zoom. Points are
+// snapped to a Web Mercator grid of about clusterPx screen pixels, so the
+// result has at most a few hundred features however many routes there are,
+// and clusters stay put while the map is panned.
+func (s *Store) Map(ctx context.Context, actor string, p MapParams) (MapResult, error) {
+	res := MapResult{Clusters: []MapCluster{}}
+	filter, err := s.filter(ctx, actor, p.ListParams)
+	if err != nil {
+		return res, err
+	}
+	b := p.BBox
+	// Web Mercator ends at ±85.05°; there are no tiles beyond it.
+	filter = append(filter, sq.Expr("r.start_point && ST_MakeEnvelope(?, ?, ?, ?, 4326)",
+		b.MinLon, max(b.MinLat, -maxMercatorLat), b.MaxLon, min(b.MaxLat, maxMercatorLat)))
+
+	cell := mercatorWorldM / float64(int(1)<<p.Zoom) / tilePx * clusterPx
+	pts := db.SQL.
+		Select("r.id::text AS id", "r.name", "r.distance_m", "r.start_point AS p").
+		Column("ST_SnapToGrid(ST_Transform(r.start_point, 3857), ?) AS cell", cell).
+		From("routes r").
+		Where(filter)
+	query, args, err := db.SQL.
+		Select("count(*)", "ST_X(ST_Centroid(ST_Collect(p)))", "ST_Y(ST_Centroid(ST_Collect(p)))",
+			"ST_XMin(ST_Extent(p))", "ST_YMin(ST_Extent(p))", "ST_XMax(ST_Extent(p))", "ST_YMax(ST_Extent(p))",
+			"min(id)", "min(name)", "min(distance_m)").
+		FromSelect(pts, "pts").
+		GroupBy("cell").
+		OrderBy("count(*) DESC").
+		Limit(maxMapClusters + 1).
+		ToSql()
+	if err != nil {
+		return res, err
+	}
+	rows, err := s.pool.Query(ctx, query, args...)
+	if err != nil {
+		return res, err
+	}
+	res.Clusters, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (MapCluster, error) {
+		var c MapCluster
+		var id, name string
+		var dist float64
+		err := row.Scan(&c.Count, &c.Lon, &c.Lat, &c.BBox[0], &c.BBox[1], &c.BBox[2], &c.BBox[3], &id, &name, &dist)
+		if c.Count == 1 { // a single route: say which
+			c.Route = &MapRoute{ID: id, Name: name, DistanceM: dist}
+		}
+		return c, err
+	})
+	if err != nil {
+		return res, err
+	}
+	if len(res.Clusters) > maxMapClusters {
+		res.Clusters, res.Truncated = res.Clusters[:maxMapClusters], true
+	}
+	res.Clusters = mergeClose(res.Clusters, cell)
+	for _, c := range res.Clusters {
+		res.Total += c.Count
+	}
+	return res, nil
+}
+
+const (
+	mercatorWorldM = 40075016.686 // width of the Web Mercator world in meters
+	maxMercatorLat = 85.05112878
+	tilePx         = 256 // a map tile's size in pixels
+	clusterPx      = 60  // a cluster cell's size in pixels
+	maxMapClusters = 2000
+)
 
 const geoJSONExpr = `CASE WHEN has_elevation THEN ST_AsGeoJSON(geom, 7) ELSE ST_AsGeoJSON(ST_Force2D(geom), 7) END`
 

@@ -249,6 +249,11 @@
   color: var(--foreground);
   border-color: var(--border);
 }
+.leaflet-bar a:hover,
+.leaflet-bar a:focus {
+  background: var(--muted);
+  color: var(--foreground);
+}
 .leaflet-control-attribution {
   font-size: 10px;
 }
@@ -263,4 +268,71 @@
 }
 .marker-label::before {
   display: none;
+}
+
+/* Route clusters and start pins (LeafletMap). */
+.route-cluster {
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--palm-leaf) 88%, transparent);
+  color: var(--onyx);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  box-shadow:
+    0 0 0 5px color-mix(in oklab, var(--palm-leaf) 30%, transparent),
+    var(--shadow-soft);
+  cursor: pointer;
+  transition: scale 120ms ease;
+}
+.route-cluster:hover {
+  scale: 1.08;
+}
+.route-pin {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--palm-leaf);
+  border: 3px solid var(--card);
+  box-shadow: var(--shadow-soft);
+  cursor: pointer;
+  transition: scale 120ms ease;
+}
+.route-pin:hover {
+  scale: 1.2;
+}
+.route-pin.is-selected {
+  background: var(--primary);
+  scale: 1.25;
+}
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: var(--card);
+  color: var(--foreground);
+}
+.cluster-list {
+  display: grid;
+  gap: 2px;
+  width: 230px;
+  max-height: 240px;
+  overflow-y: auto;
+  font-size: 13px;
+}
+.cluster-list p {
+  margin: 0 0 4px;
+  font-weight: 600;
+}
+.cluster-list button {
+  text-align: left;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cluster-list button:hover {
+  background: var(--muted);
 }

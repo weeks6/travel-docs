@@ -1,4 +1,4 @@
-import type { Collection, Page, ProfilePoint, Route, RouteVersion, Share } from "../types";
+import type { Collection, MapClusters, Page, ProfilePoint, Route, RouteVersion, Share } from "../types";
 import { api } from "./client";
 import { ifMatch, query, seg, type QueryValue } from "./query";
 
@@ -13,15 +13,25 @@ export interface RouteQuery {
   max_distance_m?: number;
   min_ascent_m?: number;
   max_ascent_m?: number;
-  bbox?: string; // minLon,minLat,maxLon,maxLat
+  bbox?: string; // minLon,minLat,maxLon,maxLat: routes crossing it
+  starts_in?: string; // minLon,minLat,maxLon,maxLat: routes starting in it
   sort?: string;
   order?: string;
+}
+
+/** GET /routes/map: the filters of GET /routes plus the map view. */
+export interface MapQuery extends Omit<RouteQuery, "page" | "page_size" | "sort" | "order" | "bbox"> {
+  bbox: string; // minLon,minLat,maxLon,maxLat
+  zoom: number;
 }
 
 const r = (id: string) => `/routes/${seg(id)}`;
 
 export const routesApi = {
   list: (q: RouteQuery = {}) => api<Page<Route>>("/routes" + query(q as Record<string, QueryValue>)),
+  /** Routes starting in the box, clustered for the zoom level. */
+  map: (q: MapQuery, signal?: AbortSignal) =>
+    api<MapClusters>("/routes/map" + query(q as unknown as Record<string, QueryValue>), { signal }),
   get: (id: string) => api<Route>(r(id)),
   geometry: (id: string) => api<GeoJSON.Feature>(r(id) + "/geometry"),
   elevation: (id: string) => api<{ points: ProfilePoint[] }>(r(id) + "/elevation"),

@@ -100,7 +100,8 @@ All list endpoints return `{items, page, page_size, total, total_pages}`. Errors
 | Method | Path | Description |
 |---|---|---|
 | POST | `/routes` | Synchronous upload for small files and scripts (`multipart/form-data`: `file`, optional `name`, `visibility`). 201, 413 (>20 MB), 422 (invalid GPX). The web UI uses background imports instead |
-| GET | `/routes` | List. `scope=mine\|shared\|public\|all` (default `mine`, or `public` when logged out), `collection_id`, `page`, `page_size` (≤100), `name`, `min_distance_m`, `max_distance_m`, `min_ascent_m`, `max_ascent_m`, `bbox=minLon,minLat,maxLon,maxLat`, `sort=created_at\|updated_at\|name\|distance\|ascent`, `order=asc\|desc` |
+| GET | `/routes` | List. `scope=mine\|shared\|public\|all` (default `mine`, or `public` when logged out), `collection_id`, `page`, `page_size` (≤100), `name`, `min_distance_m`, `max_distance_m`, `min_ascent_m`, `max_ascent_m`, `bbox=minLon,minLat,maxLon,maxLat` (routes crossing it), `starts_in=minLon,minLat,maxLon,maxLat` (routes starting in it), `sort=created_at\|updated_at\|name\|distance\|ascent`, `order=asc\|desc` |
+| GET | `/routes/map` | Routes starting in `bbox` (required), clustered for the map at `zoom` (0–22, required): `{clusters: [{lat, lon, count, bbox, route?}], total, truncated}`. Clusters are about 60 px apart on screen at that zoom; `route` (`id`, `name`, `distance_m`) is set when `count` is 1. Takes the filters of `GET /routes`, with `scope` defaulting to `all`. |
 | GET | `/routes/{id}` | Metadata, stats, `version`, `my_role`. `ETag` = version |
 | PATCH | `/routes/{id}` | `{name?, description?, visibility?}`. Name/description changes create a new version |
 | PUT | `/routes/{id}/geometry` | New geometry as a GPX upload (multipart) or GeoJSON LineString/MultiLineString (`application/geo+json`); creates a new version |

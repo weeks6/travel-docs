@@ -186,6 +186,7 @@ func TestContractResponseShapes(t *testing.T) {
 	rp := "/routes/" + route.ID
 	s.resp("GET /routes", alice.do("GET", "/routes", nil))
 	s.resp("GET /routes?scope=public anonymous", e.anon().do("GET", "/routes?scope=public", nil))
+	s.resp("GET /routes/map", alice.do("GET", "/routes/map?bbox=-180,-90,180,90&zoom=3", nil))
 	s.resp("GET /routes/:id", alice.do("GET", rp, nil))
 	s.resp("GET /routes/:id not found", alice.do("GET", "/routes/00000000-0000-0000-0000-000000000000", nil))
 	s.resp("PATCH /routes/:id", alice.do("PATCH", rp, map[string]string{"description": "new"}, `If-Match: "1"`))

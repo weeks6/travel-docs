@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -397,6 +399,8 @@ func TestListingFiltersAndPagination(t *testing.T) {
 		{"bbox=4,42,10,48&sort=name&order=asc", "Alps long, Alps short, Coast 100%_off, Coast flat", 4},
 		{"bbox=-10,50,0,60", "Highlands", 1},
 		{"bbox=100,0,110,10", "", 0},
+		{"starts_in=7.99,45.99,8.01,46.01", "Alps short", 1}, // Alps long starts at 9.0
+		{"bbox=7.99,45.99,8.01,46.01", "Alps short", 1},
 		{"name=alps&min_distance_m=5000", "Alps long", 1},
 	}
 	for _, tc := range tests {
@@ -415,7 +419,7 @@ func TestListingFiltersAndPagination(t *testing.T) {
 	if res.Page != 2 || res.PageSize != 2 || res.Total != 5 || res.TotalPages != 3 {
 		t.Errorf("meta = %+v", res)
 	}
-	for _, bad := range []string{"page=0", "page_size=101", "min_distance_m=-1", "bbox=1,2,3", "sort=id", "order=up", "scope=everyone", "collection_id=x"} {
+	for _, bad := range []string{"page=0", "page_size=101", "min_distance_m=-1", "bbox=1,2,3", "starts_in=1,2", "sort=id", "order=up", "scope=everyone", "collection_id=x"} {
 		alice.do("GET", "/routes?"+bad, nil).expect(http.StatusBadRequest)
 	}
 }
@@ -460,4 +464,98 @@ func TestUploadPathsAgree(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMapClusters(t *testing.T) {
+	e := setup(t)
+	alice, bob := e.register("alice"), e.register("bob")
+	alice.upload("A", lineGPX("A", 46.0, 8.0, 3, 0))
+	alice.upload("B", lineGPX("B", 46.0, 8.001, 3, 0)) // starts ~80 m from A
+	alice.upload("C", lineGPX("C", 46.0, 8.1, 3, 0), "visibility=public")
+	alice.upload("H", lineGPX("H", 57.0, -5.0, 3, 0))
+	bob.upload("Bob private", lineGPX("Bob private", 46.0, 8.05, 3, 0))
+	bob.upload("Bob public", lineGPX("Bob public", 46.0, 9.0, 3, 0), "visibility=public")
+
+	type cluster struct {
+		Lat, Lon float64
+		Count    int
+		BBox     [4]float64
+		Route    *struct {
+			ID, Name  string
+			DistanceM float64 `json:"distance_m"`
+		}
+	}
+	type result struct {
+		Clusters  []cluster
+		Total     int
+		Truncated bool
+	}
+	get := func(c *client, query string) result {
+		t.Helper()
+		var r result
+		c.do("GET", "/routes/map?"+query, nil).expect(http.StatusOK).decode(&r)
+		return r
+	}
+	// counts lists cluster sizes, or route names for single routes, in a
+	// stable order.
+	counts := func(r result) string {
+		var s []string
+		for _, c := range r.Clusters {
+			if c.Route != nil {
+				s = append(s, c.Route.Name)
+			} else {
+				s = append(s, strconv.Itoa(c.Count))
+			}
+		}
+		sort.Strings(s)
+		return strings.Join(s, ", ")
+	}
+
+	europe := "bbox=-10,40,20,60"
+	alps := "bbox=7.9,45.9,8.2,46.1"
+	tests := []struct {
+		name  string
+		c     *client
+		query string
+		want  string
+		total int
+	}{
+		// Zoomed out, the Alps routes are one cluster; Bob's private route is hidden.
+		{"zoomed out", alice, europe + "&zoom=4", "4, H", 5},
+		// Zoomed in, A and B (80 m apart) stay together, C is on its own.
+		{"zoomed in", alice, alps + "&zoom=12", "2, C", 3},
+		{"anonymous sees public routes", e.anon(), europe + "&zoom=12", "Bob public, C", 2},
+		{"scope", alice, europe + "&zoom=4&scope=mine", "3, H", 4},
+		{"filters", alice, europe + "&zoom=4&name=bob", "Bob public", 1},
+		{"outside the box", alice, "bbox=100,0,110,10&zoom=4", "", 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r := get(tc.c, tc.query)
+			if got := counts(r); got != tc.want {
+				t.Errorf("clusters = %q, want %q", got, tc.want)
+			}
+			if r.Total != tc.total || r.Truncated {
+				t.Errorf("total = %d, truncated = %v; want %d, false", r.Total, r.Truncated, tc.total)
+			}
+		})
+	}
+
+	// A cluster's center and bbox cover its start points; a single route
+	// says which route it is.
+	for _, c := range get(alice, alps+"&zoom=12").Clusters {
+		switch {
+		case c.Count == 2:
+			if c.BBox != [4]float64{8.0, 46.0, 8.001, 46.0} || c.Lon < 8.0 || c.Lon > 8.001 || c.Lat != 46.0 {
+				t.Errorf("cluster = %+v", c)
+			}
+		case c.Route == nil || c.Route.ID == "" || c.Route.DistanceM < 2000 || c.Lon != 8.1:
+			t.Errorf("single route = %+v", c)
+		}
+	}
+
+	for _, bad := range []string{"zoom=4", europe, europe + "&zoom=23", europe + "&zoom=x", "bbox=1,2,3&zoom=4"} {
+		alice.do("GET", "/routes/map?"+bad, nil).expect(http.StatusBadRequest)
+	}
+	e.anon().do("GET", "/routes/map?"+europe+"&zoom=4&scope=mine", nil).expect(http.StatusUnauthorized)
 }

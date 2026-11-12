@@ -172,6 +172,23 @@
   total_pages: number
 }
 
+== GET /routes/map -> 200
+{
+  clusters: [{
+    bbox: [number
+    count: number
+    lat: number
+    lon: number
+    route: {
+      distance_m: number
+      id: string
+      name: string
+    }
+  }
+  total: number
+  truncated: bool
+}
+
 == GET /routes/:id -> 200 [ETag]
 {
   ascent_m: number

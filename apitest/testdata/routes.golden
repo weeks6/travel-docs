@@ -23,6 +23,7 @@ GET /routes/:id/geometry
 GET /routes/:id/shares
 GET /routes/:id/versions
 GET /routes/:id/versions/:version/geometry
+GET /routes/map
 GET /trips
 GET /trips/:id
 GET /trips/stats
