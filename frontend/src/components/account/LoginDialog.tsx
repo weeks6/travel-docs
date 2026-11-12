@@ -1,25 +1,26 @@
 "use client";
 
+import { LogIn } from "lucide-react";
 import { useState } from "react";
 import { authApi, setSession } from "@/lib/api";
-import { Field, Modal, Msg, useAction } from "../ui";
+import { DialogActions, EmptyState, Field, Modal, Msg, useAction } from "../common";
+import { Button } from "../ui/button";
+import { Input } from "../ui/input";
 
-/** Opens the login dialog from anywhere (e.g. "Log in to upload"). */
-export function LoginPrompt({ text }: { text: string }) {
+/** Invites anonymous visitors to log in or sign up (e.g. "Log in to upload"). */
+export function LoginPrompt({ text, title = "Log in to continue" }: { text: string; title?: string }) {
   const [mode, setMode] = useState<null | "login" | "register">(null);
   return (
-    <div className="empty">
-      {text}{" "}
-      <button type="button" className="link" onClick={() => setMode("login")}>
-        Log in
-      </button>{" "}
-      or{" "}
-      <button type="button" className="link" onClick={() => setMode("register")}>
-        sign up
-      </button>
-      .
+    <EmptyState icon={<LogIn className="size-5" />} title={title}>
+      <p>{text}</p>
+      <div className="mt-4 flex justify-center gap-2">
+        <Button variant="outline" onClick={() => setMode("login")}>
+          Log in
+        </Button>
+        <Button onClick={() => setMode("register")}>Create an account</Button>
+      </div>
       {mode && <LoginDialog key={mode} mode={mode} onMode={setMode} onClose={() => setMode(null)} />}
-    </div>
+    </EmptyState>
   );
 }
 
@@ -35,8 +36,13 @@ export function LoginDialog({
   const register = mode === "register";
   const { pending, msg, run } = useAction();
   return (
-    <Modal title={register ? "Create account" : "Log in"} onClose={onClose}>
+    <Modal
+      title={register ? "Create account" : "Welcome back"}
+      description={register ? "Keep your routes and trips in one place." : "Log in to your routes and trips."}
+      onClose={onClose}
+    >
       <form
+        className="grid gap-4"
         onSubmit={(e) => {
           e.preventDefault();
           const fd = Object.fromEntries(new FormData(e.currentTarget));
@@ -48,15 +54,15 @@ export function LoginDialog({
         }}
       >
         <Field label="Email">
-          <input type="email" name="email" required autoComplete="email" />
+          <Input type="email" name="email" required autoComplete="email" />
         </Field>
         {register && (
           <Field label="Display name">
-            <input name="display_name" maxLength={100} placeholder="Optional" />
+            <Input name="display_name" maxLength={100} placeholder="Optional" />
           </Field>
         )}
-        <Field label="Password">
-          <input
+        <Field label="Password" hint={register ? "At least 8 characters." : undefined}>
+          <Input
             type="password"
             name="password"
             required
@@ -65,15 +71,15 @@ export function LoginDialog({
           />
         </Field>
         <Msg msg={msg} />
-        <div className="dialog-actions">
-          <button type="submit" className="primary" disabled={pending}>
-            {register ? "Create account" : "Log in"}
-          </button>
-        </div>
+        <Button type="submit" size="lg" className="w-full" disabled={pending}>
+          {register ? "Create account" : "Log in"}
+        </Button>
       </form>
-      <button type="button" className="link" onClick={() => onMode(register ? "login" : "register")}>
-        {register ? "Already have an account? Log in" : "No account yet? Sign up"}
-      </button>
+      <DialogActions>
+        <Button variant="link" className="mx-auto h-auto p-0" onClick={() => onMode(register ? "login" : "register")}>
+          {register ? "Already have an account? Log in" : "No account yet? Sign up"}
+        </Button>
+      </DialogActions>
     </Modal>
   );
 }

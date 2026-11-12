@@ -51,7 +51,9 @@ export default function LeafletMap({ layers = noLayers, markers = noMarkers, fit
   useEffect(() => {
     const node = el.current;
     if (!node) return;
-    const m = L.map(node, { worldCopyJump: true }).setView([46, 8], 4);
+    const m = L.map(node, { worldCopyJump: true, zoomControl: false }).setView([46, 8], 4);
+    // Top right: panels float over the left side of the map.
+    L.control.zoom({ position: "topright" }).addTo(m);
     // OpenStreetMap's tile policy requires a Referer header.
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
@@ -159,5 +161,5 @@ export default function LeafletMap({ layers = noLayers, markers = noMarkers, fit
     else map.fitBounds(bounds, { padding: [32, 32], maxZoom: 16 });
   }, [map, fitKey]);
 
-  return <div ref={el} className="map" />;
+  return <div ref={el} className="isolate size-full min-h-64" />;
 }

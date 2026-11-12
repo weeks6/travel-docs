@@ -1,11 +1,17 @@
 "use client";
 
+import { Route as RouteIcon, UploadCloud } from "lucide-react";
 import { useEffect, useState } from "react";
 import { routesApi, tripsApi, type TripFields } from "@/lib/api";
 import { fromHoursMinutes, toHoursMinutes } from "@/lib/duration";
 import { km } from "@/lib/format";
 import type { Route, Trip } from "@/lib/types";
-import { Field, Modal, Msg, errorMessage, useAction } from "../ui";
+import { cn } from "@/lib/utils";
+import { DialogActions, Field, Modal, Msg, errorMessage, useAction } from "../common";
+import { Button } from "../ui/button";
+import { Input } from "../ui/input";
+import { NativeSelect, NativeSelectOption } from "../ui/native-select";
+import { Textarea } from "../ui/textarea";
 
 const MAX_UPLOAD_MB = 20; // POST /trips accepts files up to routes.MaxUploadSize
 
@@ -74,8 +80,13 @@ export function TripFormDialog({
   }, [editing, source, routes, routeId, setMsg]);
 
   return (
-    <Modal title={editing ? "Edit trip" : "Log a trip"} onClose={onClose}>
+    <Modal
+      title={editing ? "Edit trip" : "Log a trip"}
+      description={editing ? undefined : "Which route, when, and how long it took."}
+      onClose={onClose}
+    >
       <form
+        className="grid gap-4"
         onSubmit={(e) => {
           e.preventDefault();
           const fd = new FormData(e.currentTarget);
@@ -107,55 +118,86 @@ export function TripFormDialog({
         }}
       >
         {!editing && (
-          <div className="row" role="radiogroup" aria-label="Route">
-            <label>
-              <input type="radio" checked={source === "upload"} onChange={() => setSource("upload")} /> Upload a GPX file
-            </label>
-            <label>
-              <input type="radio" checked={source === "route"} onChange={() => setSource("route")} /> Choose one of my routes
-            </label>
+          <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Route">
+            {(
+              [
+                ["upload", "Upload a GPX file", "The file becomes a new route", UploadCloud],
+                ["route", "Choose one of my routes", "A route you already have", RouteIcon],
+              ] as const
+            ).map(([value, label, hint, Icon]) => (
+              <label
+                key={value}
+                className={cn(
+                  "flex cursor-pointer flex-col gap-1 rounded-xl border p-3 transition-colors hover:bg-muted/60",
+                  source === value && "border-primary bg-accent ring-1 ring-primary/30 hover:bg-accent",
+                )}
+              >
+                <input
+                  type="radio"
+                  name="source"
+                  value={value}
+                  checked={source === value}
+                  onChange={() => setSource(value)}
+                  className="sr-only"
+                />
+                <Icon className={cn("size-5", source === value ? "text-primary" : "text-muted-foreground")} />
+                <span className="text-sm font-medium">{label}</span>
+                <span className="text-xs text-muted-foreground">{hint}</span>
+              </label>
+            ))}
           </div>
         )}
         {!editing && source === "upload" && (
           <Field label="GPX file">
-            <input type="file" name="file" accept=".gpx,application/gpx+xml" required />
+            <Input type="file" name="file" accept=".gpx,application/gpx+xml" required className="h-auto py-1.5" />
           </Field>
         )}
         {!editing && source === "route" && (
           <Field label="Route">
-            <select
+            <NativeSelect
               value={selected}
               required
+              className="w-full"
               onChange={(e) => {
                 setSelected(e.target.value);
                 prefill(routes?.find((r) => r.id === e.target.value));
               }}
             >
-              <option value="">{routes ? "Choose a route…" : "Loading routes…"}</option>
+              <NativeSelectOption value="">{routes ? "Choose a route…" : "Loading routes…"}</NativeSelectOption>
               {routes?.map((r) => (
-                <option key={r.id} value={r.id}>
+                <NativeSelectOption key={r.id} value={r.id}>
                   {r.name} ({km(r.distance_m)}){r.my_role !== "owner" ? ` by ${r.owner_name}` : ""}
-                </option>
+                </NativeSelectOption>
               ))}
-            </select>
+            </NativeSelect>
           </Field>
         )}
-        <div className="row">
+        <div className="grid grid-cols-[1.6fr_1fr_1fr] gap-2">
           <Field label="Date">
-            <input type="date" name="date" value={date} max={today()} onChange={(e) => setDate(e.target.value)} />
+            <Input type="date" name="date" value={date} max={today()} onChange={(e) => setDate(e.target.value)} />
           </Field>
           <Field label="Hours">
-            <input type="number" name="hours" min={0} step={1} value={hours} onChange={(e) => setHours(e.target.value)} />
+            <Input type="number" name="hours" min={0} step={1} value={hours} onChange={(e) => setHours(e.target.value)} />
           </Field>
           <Field label="Minutes">
-            <input type="number" name="minutes" min={0} max={59} step={1} value={minutes} onChange={(e) => setMinutes(e.target.value)} />
+            <Input
+              type="number"
+              name="minutes"
+              min={0}
+              max={59}
+              step={1}
+              value={minutes}
+              onChange={(e) => setMinutes(e.target.value)}
+            />
           </Field>
         </div>
         {!editing && (
-          <p className="meta">Leave the date and time empty to use the ones recorded in the GPX file, if it has them.</p>
+          <p className="-mt-2 text-xs text-muted-foreground">
+            Leave the date and time empty to use the ones recorded in the GPX file, if it has them.
+          </p>
         )}
         <Field label="Name">
-          <input
+          <Input
             name="name"
             defaultValue={trip?.name || ""}
             required={editing}
@@ -164,14 +206,14 @@ export function TripFormDialog({
           />
         </Field>
         <Field label="Notes">
-          <textarea name="notes" defaultValue={trip?.notes || ""} maxLength={5000} placeholder="Weather, company, how it went…" />
+          <Textarea name="notes" defaultValue={trip?.notes || ""} maxLength={5000} placeholder="Weather, company, how it went…" />
         </Field>
         <Msg msg={msg} />
-        <div className="dialog-actions">
-          <button type="submit" className="primary" disabled={pending}>
+        <DialogActions>
+          <Button type="submit" variant={editing ? "default" : "sunset"} disabled={pending}>
             {editing ? "Save" : "Log trip"}
-          </button>
-        </div>
+          </Button>
+        </DialogActions>
       </form>
     </Modal>
   );

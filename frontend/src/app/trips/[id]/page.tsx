@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import { PageLoading } from "@/components/common";
 import { TripDetails } from "@/components/trips/TripDetails";
 
 export const metadata: Metadata = { title: "Trip" };
@@ -8,7 +9,7 @@ export const metadata: Metadata = { title: "Trip" };
 // with useParams) renders under a Suspense boundary.
 export default function Page() {
   return (
-    <Suspense fallback={<div className="page empty">Loading trip…</div>}>
+    <Suspense fallback={<PageLoading label="Loading trip…" />}>
       <TripDetails />
     </Suspense>
   );

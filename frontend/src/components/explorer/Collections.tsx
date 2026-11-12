@@ -1,11 +1,29 @@
 "use client";
 
+import { ChevronLeft, ChevronRight, FolderOpen, Globe, Pencil, Plus, Share2, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ApiError, collectionsApi, routesApi } from "@/lib/api";
 import { date, plural } from "@/lib/format";
 import type { Collection, Page, Route, User } from "@/lib/types";
 import { SharesDialog } from "../SharesDialog";
-import { ConfirmButton, Field, Modal, Msg, Pager, RoleBadge, VisibilityBadge, errorMessage, useAction } from "../ui";
+import {
+  ConfirmButton,
+  DialogActions,
+  EmptyState,
+  ErrorText,
+  Field,
+  Modal,
+  Msg,
+  Pager,
+  RoleBadge,
+  VisibilityBadge,
+  errorMessage,
+  useAction,
+} from "../common";
+import { Button } from "../ui/button";
+import { Input } from "../ui/input";
+import { NativeSelect, NativeSelectOption } from "../ui/native-select";
+import { Textarea } from "../ui/textarea";
 import { RouteItem } from "./RoutesPanel";
 
 export function CollectionsPanel({
@@ -66,46 +84,63 @@ export function CollectionsPanel({
       ]
     : [["public", "Public collections"]];
   return (
-    <div className="panel">
-      <section>
-        <div className="row">
-          <select
-            value={scope}
-            onChange={(e) => {
-              setPage(1);
-              setScope(e.target.value);
-            }}
-          >
-            {scopes.map(([v, l]) => (
-              <option key={v} value={v}>
-                {l}
-              </option>
-            ))}
-          </select>
-          {user && (
-            <button type="button" className="primary" onClick={() => setCreating(true)}>
-              New collection
-            </button>
-          )}
-        </div>
-      </section>
-      <ul className="list">
+    <div className="grid gap-4">
+      <div className="flex gap-2">
+        <NativeSelect
+          aria-label="Show"
+          value={scope}
+          className="min-w-0 flex-1"
+          onChange={(e) => {
+            setPage(1);
+            setScope(e.target.value);
+          }}
+        >
+          {scopes.map(([v, l]) => (
+            <NativeSelectOption key={v} value={v}>
+              {l}
+            </NativeSelectOption>
+          ))}
+        </NativeSelect>
+        {user && (
+          <Button onClick={() => setCreating(true)}>
+            <Plus data-icon="inline-start" /> New collection
+          </Button>
+        )}
+      </div>
+      <ul className="grid gap-0.5">
         {res?.items.map((c) => (
-          <li key={c.id} onClick={() => onOpen(c)}>
-            <div className="name">
-              {c.name}
-              {c.visibility === "public" && <span className="badge public">public</span>}
-              {c.my_role !== "owner" && <RoleBadge role={c.my_role} />}
-            </div>
-            <div className="meta">
-              {plural(c.route_count, "route")}
-              {c.my_role !== "owner" && ` · by ${c.owner_name}`} · updated {date(c.updated_at)}
-            </div>
+          <li key={c.id}>
+            <button
+              type="button"
+              onClick={() => onOpen(c)}
+              className="group flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-muted/70"
+            >
+              <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-sunset/15 text-sunset">
+                <FolderOpen className="size-4" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-1.5">
+                  <span className="truncate text-sm font-semibold">{c.name}</span>
+                  {c.visibility === "public" && <Globe className="size-3.5 shrink-0 text-success" aria-label="public" />}
+                  {c.my_role !== "owner" && <RoleBadge role={c.my_role} />}
+                </span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">
+                  {plural(c.route_count, "route")}
+                  {c.my_role !== "owner" && ` · by ${c.owner_name}`} · updated {date(c.updated_at)}
+                </span>
+              </span>
+              <ChevronRight className="mt-2 size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+            </button>
           </li>
         ))}
-        {res && res.items.length === 0 && <div className="empty">No collections here yet.</div>}
-        {error && <div className="empty msg error">{error}</div>}
+        {!res && !error && [0, 1].map((i) => <li key={i} className="h-14 animate-pulse rounded-xl bg-muted" />)}
       </ul>
+      {res && res.items.length === 0 && (
+        <EmptyState icon={<FolderOpen className="size-5" />} title="No collections here yet">
+          {user ? "Group routes by region, season or plan." : undefined}
+        </EmptyState>
+      )}
+      {error && <ErrorText>{error}</ErrorText>}
       <Pager res={res} onPage={setPage} />
       {creating && (
         <CollectionFormDialog
@@ -168,51 +203,62 @@ export function CollectionView({
 
   const canEdit = c.my_role === "owner" || c.my_role === "editor";
   return (
-    <div className="panel">
-      <section>
-        <div className="collection-title">
-          <button type="button" className="link" onClick={onBack}>
-            ‹ All
-          </button>
-          <h3>{c.name}</h3>
-          <VisibilityBadge visibility={c.visibility} />
+    <div className="grid gap-4">
+      <div className="grid gap-2">
+        <Button variant="ghost" size="sm" className="-ml-2 w-fit" onClick={onBack}>
+          <ChevronLeft data-icon="inline-start" /> All collections
+        </Button>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h3 className="truncate text-xl font-semibold">{c.name}</h3>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <VisibilityBadge visibility={c.visibility} />
+              {c.my_role === "owner" ? "Your collection" : `By ${c.owner_name} · you are ${c.my_role}`}
+            </div>
+          </div>
+          <div className="flex shrink-0 gap-1">
+            {canEdit && (
+              <Button variant="ghost" size="icon-sm" aria-label="Edit" title="Edit" onClick={() => setDialog("edit")}>
+                <Pencil />
+              </Button>
+            )}
+            {c.my_role === "owner" && (
+              <Button variant="ghost" size="icon-sm" aria-label="Share" title="Share" onClick={() => setDialog("share")}>
+                <Share2 />
+              </Button>
+            )}
+          </div>
         </div>
-        <div className="meta">{c.my_role === "owner" ? "Your collection" : `By ${c.owner_name} · you are ${c.my_role}`}</div>
-        {c.description && <p className="description">{c.description}</p>}
-        <div className="actions">
-          {canEdit && (
-            <button type="button" onClick={() => setDialog("edit")}>
-              Edit
-            </button>
-          )}
-          {c.my_role === "owner" && (
-            <button type="button" onClick={() => setDialog("share")}>
-              Share
-            </button>
-          )}
-          {c.my_role === "owner" && (
-            <ConfirmButton
-              label="Delete"
-              className="danger"
-              question={`Delete collection “${c.name}”? Its routes are kept.`}
-              onConfirm={async () => {
-                await collectionsApi.remove(c.id);
-                onBack();
-              }}
-            />
-          )}
-        </div>
-      </section>
-      <ul className="list">
+        {c.description && <p className="text-sm text-muted-foreground">{c.description}</p>}
+      </div>
+      <ul className="grid gap-0.5">
         {res?.items.map((r) => (
           <RouteItem key={r.id} r={r} selected={r.id === selectedId} onSelect={onSelect} />
         ))}
-        {res && res.items.length === 0 && (
-          <div className="empty">No routes in this collection yet. Select a route and use “Add to collection”.</div>
-        )}
-        {error && <div className="empty msg error">{error}</div>}
       </ul>
+      {res && res.items.length === 0 && (
+        <EmptyState icon={<FolderOpen className="size-5" />} title="Nothing in here yet">
+          Select a route and use “Add to collection”.
+        </EmptyState>
+      )}
+      {error && <ErrorText>{error}</ErrorText>}
       <Pager res={res} onPage={setPage} />
+      {c.my_role === "owner" && (
+        <div>
+          <ConfirmButton
+            label="Delete collection"
+            variant="ghost"
+            size="sm"
+            destructive
+            icon={<Trash2 />}
+            question={`Delete collection “${c.name}”? Its routes are kept.`}
+            onConfirm={async () => {
+              await collectionsApi.remove(c.id);
+              onBack();
+            }}
+          />
+        </div>
+      )}
       {dialog === "edit" && (
         <CollectionFormDialog
           collection={c}
@@ -241,38 +287,35 @@ export function CollectionFormDialog({
   return (
     <Modal title={c ? "Edit collection" : "New collection"} onClose={onClose}>
       <form
+        className="grid gap-4"
         onSubmit={(e) => {
           e.preventDefault();
           const fd = Object.fromEntries(new FormData(e.currentTarget));
           run(async () => {
-            onSaved(
-              c
-                ? await collectionsApi.update(c.id, fd)
-                : await collectionsApi.create(fd),
-            );
+            onSaved(c ? await collectionsApi.update(c.id, fd) : await collectionsApi.create(fd));
           });
         }}
       >
         <Field label="Name">
-          <input name="name" defaultValue={c?.name || ""} required maxLength={200} />
+          <Input name="name" defaultValue={c?.name || ""} required maxLength={200} />
         </Field>
         <Field label="Description">
-          <textarea name="description" defaultValue={c?.description || ""} maxLength={5000} />
+          <Textarea name="description" defaultValue={c?.description || ""} maxLength={5000} />
         </Field>
         {(!c || c.my_role === "owner") && (
           <Field label="Visibility">
-            <select name="visibility" defaultValue={c?.visibility || "private"}>
-              <option value="private">Private</option>
-              <option value="public">Public</option>
-            </select>
+            <NativeSelect name="visibility" defaultValue={c?.visibility || "private"} className="w-full">
+              <NativeSelectOption value="private">Private: only you and people you share with</NativeSelectOption>
+              <NativeSelectOption value="public">Public: anyone can see it</NativeSelectOption>
+            </NativeSelect>
           </Field>
         )}
         <Msg msg={msg} />
-        <div className="dialog-actions">
-          <button type="submit" className="primary" disabled={pending}>
-            {c ? "Save" : "Create"}
-          </button>
-        </div>
+        <DialogActions>
+          <Button type="submit" disabled={pending}>
+            {c ? "Save" : "Create collection"}
+          </Button>
+        </DialogActions>
       </form>
     </Modal>
   );

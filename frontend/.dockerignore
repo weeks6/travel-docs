@@ -5,3 +5,6 @@ out
 .env*
 Dockerfile
 .dockerignore
+.next-e2e
+test-results
+playwright-report

@@ -45,6 +45,15 @@ test("sign up, import a GPX file, see the route, log trips", async ({ page }) =>
   await expect(page.locator(".stat").filter({ hasText: "Time" }).first()).toContainText("2 min");
   await expect(page.getByText("Sunny")).toBeVisible();
 
+  // Coming back to the routes page finds it as left, without the dialog
+  // (Next keeps the page's state), then return to the trip.
+  await page.getByRole("link", { name: "Routes", exact: true }).click();
+  await page.waitForURL((u) => u.pathname === "/"); // the kept page shows before the URL changes
+  await expect(page.getByRole("heading", { name: "Smoke route" })).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.goBack();
+  await expect(page.getByText("Sunny")).toBeVisible();
+
   // Correct the time spent.
   await page.getByRole("button", { name: "Edit" }).click();
   dialog = page.getByRole("dialog");
@@ -66,7 +75,7 @@ test("sign up, import a GPX file, see the route, log trips", async ({ page }) =>
   await expect(page.locator(".stat").filter({ hasText: "Time" }).first()).toContainText("2 h");
 
   // The log lists both, newest first, with totals.
-  await page.getByRole("link", { name: "‹ Trips" }).click();
+  await page.getByRole("link", { name: "Back to trips" }).click();
   await expect(page.locator(".trip-link")).toHaveCount(2);
   await expect(page.locator(".trip-link").first()).toContainText("Smoke route");
   await expect(page.locator(".stat").filter({ hasText: "Time on the trail" })).toContainText("3 h 30 min");

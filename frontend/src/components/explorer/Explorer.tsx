@@ -1,11 +1,15 @@
 "use client";
 
+import { FolderOpen, Route as RouteIcon, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, routesApi } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import type { Collection, ProfilePoint, Route } from "@/lib/types";
-import Map, { type BBox, type MapLayer } from "../Map";
-import { errorMessage } from "../ui";
+import Map, { previewStyle, routeStyle, type BBox, type MapLayer } from "../Map";
+import { cn } from "@/lib/utils";
+import { ErrorText, errorMessage } from "../common";
+import { Button } from "../ui/button";
+import { Tabs, TabsList, TabsTrigger } from "../ui/tabs";
 import { RouteDetails } from "./RouteDetails";
 import { RoutesPanel } from "./RoutesPanel";
 import { CollectionsPanel } from "./Collections";
@@ -79,85 +83,118 @@ export function Explorer() {
 
   const layers = useMemo(() => {
     const l: MapLayer[] = [];
-    if (selection) l.push({ key: "route", data: selection.feature, style: { color: "#2563eb", weight: 4 } });
-    if (preview) l.push({ key: "preview", data: preview, style: { color: "#ea580c", weight: 3, dashArray: "6 6" } });
+    if (selection) l.push({ key: "route", data: selection.feature, style: routeStyle });
+    if (preview) l.push({ key: "preview", data: preview, style: previewStyle });
     return l;
   }, [selection, preview]);
 
+  const panel = "rounded-2xl bg-card/95 shadow-soft ring-1 ring-foreground/8 backdrop-blur-md";
   return (
-    <div className="app">
-      <aside>
-        <nav className="tabs">
-          <button type="button" className={tab === "routes" ? "active" : ""} onClick={() => setTab("routes")}>
-            Routes
-          </button>
-          <button
-            type="button"
-            className={tab === "collections" ? "active" : ""}
-            onClick={() => setTab("collections")}
-          >
-            Collections
-          </button>
-        </nav>
-        {!ready ? (
-          <div className="empty">Loading…</div>
-        ) : tab === "routes" ? (
-          <RoutesPanel
-            key={userID ?? "anon"}
-            user={user}
-            selectedId={selection?.route.id}
-            onSelect={(r) => select(r.id)}
-            reloadKey={reloadKey}
-            bbox={bbox}
-            onImported={(routeId) => {
-              reloadLists();
-              if (routeId) select(routeId);
-            }}
-          />
-        ) : (
-          <CollectionsPanel
-            key={userID ?? "anon"}
-            user={user}
-            collection={collection}
-            onOpen={(c) => {
-              setCollection(c);
-              deselect();
-            }}
-            selectedId={selection?.route.id}
-            onSelect={(r) => select(r.id)}
-            reloadKey={reloadKey}
-          />
-        )}
-      </aside>
-      <main>
+    <div className="relative flex flex-col gap-3 p-3 lg:h-full lg:p-0">
+      {/* The map fills the page on large screens; panels float over it. */}
+      <div className="order-2 h-[55vh] overflow-hidden rounded-2xl ring-1 ring-foreground/8 lg:absolute lg:inset-0 lg:h-full lg:rounded-none lg:ring-0">
         <Map layers={layers} fitKey={fitKey} onMoveEnd={setBbox} />
-        {error && <div className="details msg error">{error}</div>}
-        {selection && (
-          <RouteDetails
-            key={selection.route.id}
-            route={selection.route}
-            profile={selection.profile}
-            user={user}
-            collection={tab === "collections" ? collection : null}
-            onChanged={(updated) => {
-              select(updated ? updated.id : selection.route.id, false);
-              reloadLists();
-            }}
-            onDeleted={() => {
-              deselect();
-              reloadLists();
-            }}
-            onRemovedFromCollection={() => {
-              deselect();
-              reloadLists();
-            }}
-            onPreview={(f) => {
-              setPreview(f);
-              setFitKey((k) => k + 1);
-            }}
-          />
+      </div>
+      <aside
+        className={cn(
+          panel,
+          "order-1 flex max-h-[70vh] flex-col overflow-hidden lg:absolute lg:top-4 lg:bottom-4 lg:left-4 lg:z-10 lg:max-h-none lg:w-[380px]",
         )}
-      </main>
+      >
+        <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)} className="border-b p-3">
+          <TabsList className="w-full">
+            <TabsTrigger value="routes">
+              <RouteIcon /> Routes
+            </TabsTrigger>
+            <TabsTrigger value="collections">
+              <FolderOpen /> Collections
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          {!ready ? (
+            <div className="grid gap-2">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="h-14 animate-pulse rounded-xl bg-muted" />
+              ))}
+            </div>
+          ) : tab === "routes" ? (
+            <RoutesPanel
+              key={userID ?? "anon"}
+              user={user}
+              selectedId={selection?.route.id}
+              onSelect={(r) => select(r.id)}
+              reloadKey={reloadKey}
+              bbox={bbox}
+              onImported={(routeId) => {
+                reloadLists();
+                if (routeId) select(routeId);
+              }}
+            />
+          ) : (
+            <CollectionsPanel
+              key={userID ?? "anon"}
+              user={user}
+              collection={collection}
+              onOpen={(c) => {
+                setCollection(c);
+                deselect();
+              }}
+              selectedId={selection?.route.id}
+              onSelect={(r) => select(r.id)}
+              reloadKey={reloadKey}
+            />
+          )}
+        </div>
+      </aside>
+      {(error || selection) && (
+        <section
+          aria-label="Selected route"
+          className={cn(
+            panel,
+            "order-3 overflow-y-auto p-5 lg:absolute lg:right-4 lg:bottom-4 lg:z-10 lg:max-h-[min(62%,640px)] lg:w-[min(540px,calc(100%-420px))]",
+          )}
+        >
+          {error && <ErrorText>{error}</ErrorText>}
+          {selection && (
+            <>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Close"
+                title="Close"
+                className="float-right -mt-2 -mr-2 ml-2"
+                onClick={deselect}
+              >
+                <X />
+              </Button>
+              <RouteDetails
+                key={selection.route.id}
+                route={selection.route}
+                profile={selection.profile}
+                user={user}
+                collection={tab === "collections" ? collection : null}
+                onChanged={(updated) => {
+                  select(updated ? updated.id : selection.route.id, false);
+                  reloadLists();
+                }}
+                onDeleted={() => {
+                  deselect();
+                  reloadLists();
+                }}
+                onRemovedFromCollection={() => {
+                  deselect();
+                  reloadLists();
+                }}
+                onPreview={(f) => {
+                  setPreview(f);
+                  setFitKey((k) => k + 1);
+                }}
+              />
+            </>
+          )}
+        </section>
+      )}
     </div>
   );
 }

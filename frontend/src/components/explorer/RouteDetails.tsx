@@ -1,5 +1,6 @@
 "use client";
 
+import { Eye, FileUp, FolderMinus, FolderPlus, Footprints, History, Pencil, Share2, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ApiError, collectionsApi, routesApi } from "@/lib/api";
@@ -10,7 +11,23 @@ import { ElevationChart } from "../ElevationChart";
 import { ImportForm } from "../ImportForm";
 import { SharesDialog } from "../SharesDialog";
 import { TripFormDialog } from "../trips/TripFormDialog";
-import { ConfirmButton, Field, Modal, Msg, RoleBadge, VisibilityBadge, errorMessage, useAction } from "../ui";
+import { cn } from "@/lib/utils";
+import {
+  ConfirmButton,
+  DialogActions,
+  Field,
+  Modal,
+  Msg,
+  RoleBadge,
+  StatGrid,
+  VisibilityBadge,
+  errorMessage,
+  useAction,
+} from "../common";
+import { Button } from "../ui/button";
+import { Input } from "../ui/input";
+import { NativeSelect, NativeSelectOption } from "../ui/native-select";
+import { Textarea } from "../ui/textarea";
 
 type Dialog = null | "edit" | "version" | "history" | "share" | "collect" | "trip";
 
@@ -44,48 +61,55 @@ export function RouteDetails({
   const close = () => setDialog(null);
 
   return (
-    <div className="details">
-      <div className="details-head">
-        <div>
-          <h2>{r.name}</h2>
-          <div className="meta">
-            by {isOwner ? "you" : r.owner_name} · version {r.version} · updated {date(r.updated_at)}{" "}
+    <div className="grid gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="truncate text-2xl font-semibold">{r.name}</h2>
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
             <VisibilityBadge visibility={r.visibility} />
             {!isOwner && <RoleBadge role={"you are " + r.my_role} />}
+            <span>
+              by {isOwner ? "you" : r.owner_name} · v{r.version} · updated {date(r.updated_at)}
+            </span>
           </div>
         </div>
-        <div className="actions">
-          {canEdit && (
-            <button type="button" onClick={() => setDialog("edit")}>
-              Edit
-            </button>
-          )}
-          {canEdit && (
-            <button type="button" onClick={() => setDialog("version")}>
-              New version
-            </button>
-          )}
-          <button type="button" onClick={() => setDialog("history")}>
-            History
-          </button>
-          {isOwner && (
-            <button type="button" onClick={() => setDialog("share")}>
-              Share
-            </button>
-          )}
-          {user && (
-            <button type="button" onClick={() => setDialog("trip")}>
-              Log trip
-            </button>
-          )}
-          {user && (
-            <button type="button" onClick={() => setDialog("collect")}>
-              Add to collection
-            </button>
-          )}
+        {user && (
+          <Button variant="sunset" onClick={() => setDialog("trip")}>
+            <Footprints data-icon="inline-start" /> Log trip
+          </Button>
+        )}
+      </div>
+      <div className="flex flex-wrap items-center gap-1 border-y py-1.5">
+        {canEdit && (
+          <Button variant="ghost" size="icon-sm" aria-label="Edit" title="Edit" onClick={() => setDialog("edit")}>
+            <Pencil />
+          </Button>
+        )}
+        {canEdit && (
+          <Button variant="ghost" size="icon-sm" aria-label="New version" title="New version" onClick={() => setDialog("version")}>
+            <FileUp />
+          </Button>
+        )}
+          <Button variant="ghost" size="icon-sm" aria-label="History" title="History" onClick={() => setDialog("history")}>
+            <History />
+          </Button>
+        {isOwner && (
+          <Button variant="ghost" size="icon-sm" aria-label="Share" title="Share" onClick={() => setDialog("share")}>
+            <Share2 />
+          </Button>
+        )}
+        {user && (
+          <Button variant="ghost" size="icon-sm" aria-label="Add to collection" title="Add to collection" onClick={() => setDialog("collect")}>
+            <FolderPlus />
+          </Button>
+        )}
+        <div className="ml-auto flex gap-1">
           {canRemoveFromCollection && (
             <ConfirmButton
               label="Remove from collection"
+              variant="ghost"
+              size="sm"
+              icon={<FolderMinus />}
               question={`Remove “${r.name}” from “${collection.name}”? The route itself is not deleted.`}
               confirmLabel="Remove"
               onConfirm={async () => {
@@ -97,7 +121,10 @@ export function RouteDetails({
           {isOwner && (
             <ConfirmButton
               label="Delete"
-              className="danger"
+              variant="ghost"
+              size="sm"
+              destructive
+              icon={<Trash2 />}
               question={`Delete “${r.name}” and its history?`}
               onConfirm={async () => {
                 await routesApi.remove(r.id);
@@ -107,31 +134,25 @@ export function RouteDetails({
           )}
         </div>
       </div>
-      {r.description && <p className="description">{r.description}</p>}
-      <div className="stats">
-        {(
-          [
-            ["Distance", km(r.distance_m)],
-            ["Ascent", meters(r.ascent_m)],
-            ["Descent", meters(r.descent_m)],
-            ["Min elevation", meters(r.min_elevation_m)],
-            ["Max elevation", meters(r.max_elevation_m)],
-            ["Points", r.point_count.toLocaleString()],
-            ...(r.duration_s ? ([["Recorded time", formatDuration(r.duration_s)]] as const) : []),
-          ] as const
-        ).map(([label, value]) => (
-          <div className="stat" key={label}>
-            <div className="v">{value}</div>
-            <div className="l">{label}</div>
-          </div>
-        ))}
-      </div>
+      {r.description && <p className="text-sm text-muted-foreground">{r.description}</p>}
+      <StatGrid
+        className="sm:grid-cols-4"
+        stats={[
+          ["Distance", km(r.distance_m)],
+          ["Ascent", meters(r.ascent_m)],
+          ["Descent", meters(r.descent_m)],
+          ...(r.duration_s ? ([["Recorded time", formatDuration(r.duration_s)]] as [string, string][]) : []),
+          ["Lowest", meters(r.min_elevation_m)],
+          ["Highest", meters(r.max_elevation_m)],
+          ["Points", r.point_count.toLocaleString()],
+        ]}
+      />
       <ElevationChart points={profile} />
 
       {dialog === "edit" && <EditRouteDialog route={r} onClose={close} onChanged={onChanged} />}
       {dialog === "version" && (
         <Modal title="Upload new version" onClose={close}>
-          <p className="meta">
+          <p className="text-sm text-muted-foreground">
             Replaces the route geometry with a new GPX file. Name and description stay the same; the current version
             stays in the history.
           </p>
@@ -161,7 +182,14 @@ export function RouteDetails({
       )}
       {dialog === "share" && <SharesDialog kind="route" item={r} onClose={close} />}
       {dialog === "trip" && (
-        <TripFormDialog routeId={r.id} onClose={close} onSaved={(t) => router.push(`/trips/${t.id}`)} />
+        <TripFormDialog
+          routeId={r.id}
+          onClose={close}
+          onSaved={(t) => {
+            close(); // Next keeps this page's state for when you come back
+            router.push(`/trips/${t.id}`);
+          }}
+        />
       )}
       {dialog === "collect" && <AddToCollectionDialog route={r} onClose={close} />}
     </div>
@@ -191,6 +219,7 @@ function EditRouteDialog({
   return (
     <Modal title="Edit route" onClose={onClose}>
       <form
+        className="grid gap-4"
         onSubmit={async (e) => {
           e.preventDefault();
           const fd = Object.fromEntries(new FormData(e.currentTarget));
@@ -208,25 +237,25 @@ function EditRouteDialog({
         }}
       >
         <Field label="Name">
-          <input name="name" defaultValue={r.name} required maxLength={200} />
+          <Input name="name" defaultValue={r.name} required maxLength={200} />
         </Field>
         <Field label="Description">
-          <textarea name="description" defaultValue={r.description} maxLength={5000} />
+          <Textarea name="description" defaultValue={r.description} maxLength={5000} />
         </Field>
         {r.my_role === "owner" && (
           <Field label="Visibility">
-            <select name="visibility" defaultValue={r.visibility}>
-              <option value="private">Private — only you and people you share with</option>
-              <option value="public">Public — anyone with the link</option>
-            </select>
+            <NativeSelect name="visibility" defaultValue={r.visibility} className="w-full">
+              <NativeSelectOption value="private">Private: only you and people you share with</NativeSelectOption>
+              <NativeSelectOption value="public">Public: anyone with the link</NativeSelectOption>
+            </NativeSelect>
           </Field>
         )}
         <Msg msg={msg} />
-        <div className="dialog-actions">
-          <button type="submit" className="primary" disabled={busy || pending}>
+        <DialogActions>
+          <Button type="submit" disabled={busy || pending}>
             Save
-          </button>
-        </div>
+          </Button>
+        </DialogActions>
       </form>
     </Modal>
   );
@@ -266,60 +295,71 @@ function HistoryDialog({
   }, [r.id, setMsg]);
 
   return (
-    <Modal title={`History of “${r.name}”`} onClose={onClose}>
-      <table className="table">
-        <tbody>
-          {versions?.map((v) => (
-            <tr key={v.version}>
-              <td>
-                <strong>v{v.version} </strong>
+    <Modal
+      title={`History of “${r.name}”`}
+      description="“Show” draws that version on the map as a dashed line."
+      onClose={onClose}
+      wide
+    >
+      <ol className="grid gap-2">
+        {versions?.map((v) => (
+          <li key={v.version} className="flex items-start gap-3 rounded-xl border p-3">
+            <span
+              className={cn(
+                "grid size-9 shrink-0 place-items-center rounded-lg bg-secondary font-heading text-sm font-semibold",
+                v.version === r.version && "bg-primary text-primary-foreground",
+              )}
+            >
+              v{v.version}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-medium">
                 {changeLabels[v.change] || v.change}
                 {v.restored_from ? ` from v${v.restored_from}` : ""}
-                <div className="meta">
-                  {v.name} · {km(v.distance_m)} · ↑ {meters(v.ascent_m)} · {v.point_count} points
-                </div>
-                <div className="meta">
-                  {dateTime(v.created_at)} · {v.created_by_name || "unknown"}
-                </div>
-              </td>
-              <td>
-                <button
-                  type="button"
-                  className="link"
-                  onClick={() =>
-                    run(async () => {
-                      onPreview(await routesApi.versionGeometry(r.id, v.version));
-                    })
-                  }
-                >
-                  Show
-                </button>
-                {canEdit && v.version !== r.version && (
-                  <button type="button" className="link" onClick={() => setRestoring(v.version)}>
-                    Restore
-                  </button>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                {v.version === r.version && <span className="ml-2 text-xs font-normal text-primary">current</span>}
+              </div>
+              <div className="truncate text-xs text-muted-foreground">
+                {v.name} · {km(v.distance_m)} · ↑ {meters(v.ascent_m)} · {v.point_count} points
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {dateTime(v.created_at)} · {v.created_by_name || "unknown"}
+              </div>
+            </div>
+            <div className="flex shrink-0 gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() =>
+                  run(async () => {
+                    onPreview(await routesApi.versionGeometry(r.id, v.version));
+                  })
+                }
+              >
+                <Eye data-icon="inline-start" /> Show
+              </Button>
+              {canEdit && v.version !== r.version && (
+                <Button variant="outline" size="sm" onClick={() => setRestoring(v.version)}>
+                  Restore
+                </Button>
+              )}
+            </div>
+          </li>
+        ))}
+        {!versions && [0, 1].map((i) => <li key={i} className="h-16 animate-pulse rounded-xl bg-muted" />)}
+      </ol>
       {restoring !== null && (
-        <div className="confirm">
-          <span>Restore version {restoring}? It will be saved as a new version.</span>
-          <button type="button" onClick={() => setRestoring(null)}>
+        <div className="flex flex-wrap items-center gap-2 rounded-xl bg-accent p-3 text-sm text-accent-foreground">
+          <span className="flex-1">Restore version {restoring}? It will be saved as a new version.</span>
+          <Button variant="ghost" size="sm" onClick={() => setRestoring(null)}>
             Cancel
-          </button>
-          <button
-            type="button"
-            className="primary"
+          </Button>
+          <Button
+            size="sm"
             disabled={pending}
             onClick={() =>
               run(async () => {
                 try {
-                  onChanged(
-                    await routesApi.restore(r.id, restoring, r.version),
-                  );
+                  onChanged(await routesApi.restore(r.id, restoring, r.version));
                 } catch (e) {
                   if (e instanceof ApiError && e.status === 412) onChanged(null);
                   throw new Error(concurrencyMessage(e));
@@ -328,11 +368,10 @@ function HistoryDialog({
             }
           >
             Restore
-          </button>
+          </Button>
         </div>
       )}
       <Msg msg={msg} />
-      <p className="meta">“Show” draws that version on the map as an orange dashed line.</p>
     </Modal>
   );
 }
@@ -358,8 +397,17 @@ function AddToCollectionDialog({ route: r, onClose }: { route: Route; onClose: (
   }, [r.id, setMsg]);
 
   return (
-    <Modal title={`Add “${r.name}” to a collection`} onClose={onClose}>
+    <Modal
+      title={`Add “${r.name}” to a collection`}
+      description={
+        r.my_role === "owner"
+          ? "Everyone who can see the collection will be able to see this route."
+          : "You can add other people’s routes only while they are public."
+      }
+      onClose={onClose}
+    >
       <form
+        className="grid gap-4"
         onSubmit={(e) => {
           e.preventDefault();
           const fd = new FormData(e.currentTarget);
@@ -376,30 +424,25 @@ function AddToCollectionDialog({ route: r, onClose }: { route: Route; onClose: (
         }}
       >
         <Field label="Collection">
-          <select name="collection" defaultValue="">
-            <option value="">{options?.length ? "Choose…" : "No other collections"}</option>
+          <NativeSelect name="collection" defaultValue="" className="w-full">
+            <NativeSelectOption value="">{options?.length ? "Choose…" : "No other collections"}</NativeSelectOption>
             {options?.map((c) => (
-              <option key={c.id} value={c.id}>
+              <NativeSelectOption key={c.id} value={c.id}>
                 {c.name}
-              </option>
+              </NativeSelectOption>
             ))}
-          </select>
+          </NativeSelect>
         </Field>
         <Field label="…or create a new one">
-          <input name="new_name" placeholder="New collection name" maxLength={200} />
+          <Input name="new_name" placeholder="New collection name" maxLength={200} />
         </Field>
         <Msg msg={msg} />
-        <div className="dialog-actions">
-          <button type="submit" className="primary" disabled={pending}>
+        <DialogActions>
+          <Button type="submit" disabled={pending}>
             Add
-          </button>
-        </div>
+          </Button>
+        </DialogActions>
       </form>
-      <p className="meta">
-        {r.my_role === "owner"
-          ? "Everyone who can see the collection will be able to see this route."
-          : "You can add other people’s routes only while they are public."}
-      </p>
     </Modal>
   );
 }

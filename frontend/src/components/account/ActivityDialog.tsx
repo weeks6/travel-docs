@@ -4,7 +4,10 @@ import { useEffect, useState } from "react";
 import { auditApi } from "@/lib/api";
 import { dateTime } from "@/lib/format";
 import type { AuditEvent, User } from "@/lib/types";
-import { Modal, errorMessage } from "../ui";
+import { cn } from "@/lib/utils";
+import { DialogActions, ErrorText, Modal, errorMessage } from "../common";
+import { Button } from "../ui/button";
+import { Skeleton } from "../ui/skeleton";
 
 export const actionLabels: Record<string, string> = {
   "user.register": "Created account",
@@ -30,17 +33,9 @@ export const actionLabels: Record<string, string> = {
   "collection.unshare": "Removed collection share",
   "collection.route_add": "Added route to collection",
   "collection.route_remove": "Removed route from collection",
-  "trip.create": "Created trip",
-  "trip.update": "Edited trip",
-  "trip.delete": "Deleted trip",
-  "trip.start": "Started trip",
-  "trip.end": "Ended trip",
-  "trip.invite": "Invited someone to a trip",
-  "trip.invite_revoke": "Withdrew a trip invitation",
-  "trip.invite_accept": "Joined a trip",
-  "trip.invite_decline": "Declined a trip invitation",
-  "trip.participant_remove": "Removed a trip participant",
-  "trip.leave": "Left a trip",
+  "trip.create": "Logged a trip",
+  "trip.update": "Edited a trip",
+  "trip.delete": "Deleted a trip",
 };
 
 export function eventDetail(ev: AuditEvent): string {
@@ -87,31 +82,41 @@ export function ActivityDialog({ user, onClose }: { user: User; onClose: () => v
   };
 
   return (
-    <Modal title="Activity" onClose={onClose}>
-      <table className="table">
-        <tbody>
-          {items.map((ev) => (
-            <tr key={ev.id}>
-              <td>
-                {actionLabels[ev.action] || ev.action}
-                {eventDetail(ev) && <div className="meta">{eventDetail(ev)}</div>}
-                {ev.actor_id && ev.actor_id !== user.id && (
-                  <div className="meta">by {ev.actor_name || "deleted user"}</div>
-                )}
-              </td>
-              <td className="meta">{dateTime(ev.occurred_at)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {loading && <p className="meta">Loading…</p>}
-      {error && <p className="msg error">{error}</p>}
+    <Modal title="Activity" description="What happened in your account, newest first." onClose={onClose}>
+      <ol className="relative grid gap-4 border-l pl-5">
+        {items.map((ev) => (
+          <li key={ev.id} className="relative">
+            <span
+              aria-hidden
+              className={cn(
+                "absolute top-1.5 -left-[25px] size-2.5 rounded-full ring-4 ring-popover",
+                ev.action.includes("fail") || ev.action.includes("reuse") ? "bg-destructive" : "bg-primary",
+              )}
+            />
+            <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+              <span className="text-sm font-medium">{actionLabels[ev.action] || ev.action}</span>
+              <time className="text-xs text-muted-foreground tabular-nums">{dateTime(ev.occurred_at)}</time>
+            </div>
+            {eventDetail(ev) && <div className="text-xs text-muted-foreground">{eventDetail(ev)}</div>}
+            {ev.actor_id && ev.actor_id !== user.id && (
+              <div className="text-xs text-muted-foreground">by {ev.actor_name || "deleted user"}</div>
+            )}
+          </li>
+        ))}
+        {loading && (
+          <li className="grid gap-2">
+            <Skeleton className="h-4 w-2/3" />
+            <Skeleton className="h-3 w-1/3" />
+          </li>
+        )}
+      </ol>
+      {error && <ErrorText>{error}</ErrorText>}
       {next !== null && !loading && (
-        <div className="dialog-actions">
-          <button type="button" onClick={loadMore}>
+        <DialogActions>
+          <Button variant="outline" onClick={loadMore}>
             Load more
-          </button>
-        </div>
+          </Button>
+        </DialogActions>
       )}
     </Modal>
   );
