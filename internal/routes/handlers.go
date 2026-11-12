@@ -59,19 +59,19 @@ func (h *Handler) upload(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
+	form, err := ParseNewRouteForm(c.FormValue("name"), c.FormValue("visibility"))
+	if err != nil {
+		return err
+	}
 	f, filename, err := readGPXUpload(c)
 	if err != nil {
 		return err
 	}
-	content, err := BuildContent(f, filename, c.FormValue("name"))
+	content, err := BuildContent(f, filename, form.Name)
 	if err != nil {
 		return err
 	}
-	visibility := c.FormValue("visibility")
-	if visibility == "" {
-		visibility = VisibilityPrivate
-	}
-	route, err := h.Store.Create(c.Request().Context(), actor, content, visibility)
+	route, err := h.Store.Create(c.Request().Context(), actor, content, form.Visibility)
 	if err != nil {
 		return err
 	}
@@ -94,10 +94,10 @@ func readGPXUpload(c *echo.Context) (*gpx.File, string, error) {
 	}
 	defer file.Close()
 
-	f, err := gpx.Parse(file)
+	f, err := ParseGPX(file)
 	if err != nil {
-		if gpx.IsValidationError(err) {
-			return nil, "", apperr.New(apperr.Unprocessable, err.Error())
+		if apperr.KindOf(err) != apperr.Internal {
+			return nil, "", err
 		}
 		return nil, "", apperr.New(apperr.Invalid, "could not read upload")
 	}
@@ -261,7 +261,7 @@ func (h *Handler) replaceGeometry(c *echo.Context) error {
 	}
 	ctx := c.Request().Context()
 	// Check access before reading a potentially large body.
-	if _, err := h.Store.Get(ctx, actor, id); err != nil {
+	if _, err := h.Store.CheckEditable(ctx, actor, id, ifVersion); err != nil {
 		return err
 	}
 

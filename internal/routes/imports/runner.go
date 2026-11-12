@@ -408,15 +408,12 @@ func (r *Runner) run(ctx context.Context, log *slog.Logger, job Job, payload []b
 
 	rep.report(StageParsing, 5, true)
 	_, span := tracing.Tracer().Start(ctx, "import_job.parse")
-	f, err := gpx.Parse(&progressReader{
+	f, err := routes.ParseGPX(&progressReader{
 		ctx: ctx, r: bytes.NewReader(payload), total: int64(len(payload)),
 		onRead: func(read, total int64) { rep.report(StageParsing, 5+int(55*read/max(total, 1)), false) },
 	})
 	span.End()
 	if err != nil {
-		if gpx.IsValidationError(err) {
-			return Job{}, apperr.New(apperr.Unprocessable, err.Error())
-		}
 		return Job{}, err
 	}
 	payload = nil // let the file be collected while saving

@@ -184,10 +184,31 @@ func lockForChange(ctx context.Context, tx pgx.Tx, actor, id string, ifVersion i
 	case l.Role == RoleViewer:
 		return l, errReadOnly
 	case ifVersion != 0 && ifVersion != l.Version:
-		return l, apperr.Newf(apperr.PreconditionFailed,
-			"route was changed by someone else (now at version %d); reload and try again", l.Version)
+		return l, errVersionConflict(l.Version)
 	}
 	return l, nil
+}
+
+// CheckEditable returns the route if the actor may change it and, when
+// ifVersion is non-zero, it is still at that version. It takes no lock, so
+// changes check again: use it to reject a request before reading a large
+// body or queueing work.
+func (s *Store) CheckEditable(ctx context.Context, actor, id string, ifVersion int) (Route, error) {
+	r, err := s.Get(ctx, actor, id)
+	switch {
+	case err != nil:
+		return r, err
+	case r.MyRole == RoleViewer:
+		return r, errReadOnly
+	case ifVersion != 0 && ifVersion != r.Version:
+		return r, errVersionConflict(r.Version)
+	}
+	return r, nil
+}
+
+func errVersionConflict(current int) error {
+	return apperr.Newf(apperr.PreconditionFailed,
+		"route was changed by someone else (now at version %d); reload and try again", current)
 }
 
 // UpdateMetadata changes name/description (creating a new version) and/or

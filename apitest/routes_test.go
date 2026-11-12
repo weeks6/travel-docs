@@ -434,3 +434,30 @@ func TestRouteJSONShape(t *testing.T) {
 		}
 	}
 }
+
+// TestUploadPathsAgree checks that direct uploads and background imports
+// apply the same rules to the same input.
+func TestUploadPathsAgree(t *testing.T) {
+	e := setup(t, withoutWorkers())
+	alice := e.register("alice")
+	long := strings.Repeat("n", 201)
+	cases := []struct {
+		name, file, content string
+		fields              map[string]string
+		status              int
+	}{
+		{"not XML", "a.gpx", "hello", nil, http.StatusUnprocessableEntity},
+		{"name too long", "a.gpx", sampleGPX, map[string]string{"name": long}, http.StatusBadRequest},
+		{"bad visibility", "a.gpx", sampleGPX, map[string]string{"visibility": "friends"}, http.StatusBadRequest},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			direct := alice.uploadRaw(tc.file, []byte(tc.content), tc.fields)
+			queued := alice.enqueue(tc.file, tc.content, tc.fields)
+			if direct.Status != tc.status || queued.Status != tc.status || direct.errorMsg() != queued.errorMsg() {
+				t.Errorf("direct %d %q, import %d %q; want both %d with the same message",
+					direct.Status, direct.errorMsg(), queued.Status, queued.errorMsg(), tc.status)
+			}
+		})
+	}
+}

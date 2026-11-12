@@ -5,16 +5,6 @@ import (
 	"time"
 )
 
-func TestLooksLikeXML(t *testing.T) {
-	for in, want := range map[string]bool{
-		"<gpx/>": true, "\xef\xbb\xbf  \n<?xml?>": true, "": false, "{\"type\":1}": false, "   ": false,
-	} {
-		if got := looksLikeXML([]byte(in)); got != want {
-			t.Errorf("looksLikeXML(%q) = %v", in, got)
-		}
-	}
-}
-
 func TestRequestHashCoversTheRequest(t *testing.T) {
 	base := NewJob{Kind: KindCreate, Filename: "a.gpx", Name: "A", Visibility: "private", Payload: []byte("<gpx/>")}
 	variants := []NewJob{base, base, base, base, base}

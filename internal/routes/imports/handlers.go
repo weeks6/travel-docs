@@ -1,17 +1,14 @@
 package imports
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 	"uuid"
 
 	"github.com/labstack/echo/v5"
@@ -101,37 +98,21 @@ func (h *Handler) create(c *echo.Context) error {
 		if err != nil {
 			return routes.ErrNotFound
 		}
-		// Check access now so the user gets a clear error right away.
-		r, err := h.Routes.Get(ctx, actor, id.String())
-		if err != nil {
-			return err
-		}
-		if r.MyRole == routes.RoleViewer {
-			return apperr.New(apperr.Forbidden, "you can view this route but not edit it")
-		}
 		if n.IfVersion, err = httpx.IfMatchVersion(c.Request().Header.Get("If-Match")); err != nil {
 			return err
 		}
-		if n.IfVersion != 0 && n.IfVersion != r.Version {
-			return apperr.Newf(apperr.PreconditionFailed,
-				"route was changed by someone else (now at version %d); reload and try again", r.Version)
+		// Check access now so the user gets a clear error right away.
+		r, err := h.Routes.CheckEditable(ctx, actor, id.String(), n.IfVersion)
+		if err != nil {
+			return err
 		}
-		n.Kind, n.RouteID = KindReplaceGeometry, r.ID
+		n.Kind, n.RouteID, n.Visibility = KindReplaceGeometry, r.ID, routes.VisibilityPrivate
 	} else {
-		n.Name = strings.TrimSpace(c.FormValue("name"))
-		if utf8.RuneCountInString(n.Name) > 200 {
-			return apperr.New(apperr.Invalid, "name must be at most 200 characters")
+		form, err := routes.ParseNewRouteForm(c.FormValue("name"), c.FormValue("visibility"))
+		if err != nil {
+			return err
 		}
-		n.Visibility = c.FormValue("visibility")
-		if n.Visibility == "" {
-			n.Visibility = routes.VisibilityPrivate
-		}
-		if n.Visibility != routes.VisibilityPrivate && n.Visibility != routes.VisibilityPublic {
-			return apperr.New(apperr.Invalid, "visibility must be private or public")
-		}
-	}
-	if n.Visibility == "" {
-		n.Visibility = routes.VisibilityPrivate
+		n.Name, n.Visibility = form.Name, form.Visibility
 	}
 
 	header, err := c.FormFile("file")
@@ -157,13 +138,10 @@ func (h *Handler) create(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusRequestEntityTooLarge,
 			"the file is larger than "+strconv.Itoa(MaxImportSize>>20)+" MB")
 	}
-	if !looksLikeXML(n.Payload) {
-		return apperr.New(apperr.Unprocessable, "invalid GPX: the file is not an XML document")
+	if !routes.LooksLikeXML(n.Payload) {
+		return routes.ErrNotXML
 	}
-	n.Filename = filepath.Base(header.Filename)
-	if n.Filename == "." || n.Filename == "/" {
-		n.Filename = ""
-	}
+	n.Filename = routes.CleanFilename(header.Filename)
 	metrics.ImportUploadBytes.Observe(float64(len(n.Payload)))
 
 	job, replayed, err := h.Store.Enqueue(ctx, n)
@@ -196,14 +174,6 @@ func printableASCII(s string) bool {
 		}
 	}
 	return true
-}
-
-// looksLikeXML checks that the file starts with "<" (after an optional
-// byte order mark and whitespace), to reject obviously wrong files early.
-func looksLikeXML(b []byte) bool {
-	b = bytes.TrimPrefix(b, []byte("\xef\xbb\xbf"))
-	b = bytes.TrimLeft(b, " \t\r\n")
-	return len(b) > 0 && b[0] == '<'
 }
 
 // list supports ?status=active|finished|all, page and page_size.

@@ -41,10 +41,7 @@ func BuildContent(f *gpx.File, filename, nameOverride string) (Content, error) {
 		return Content{}, err
 	}
 
-	filename = filepath.Base(filename)
-	if filename == "." || filename == "/" {
-		filename = ""
-	}
+	filename = CleanFilename(filename)
 	name := strings.TrimSpace(nameOverride)
 	if name == "" {
 		name = f.Name
