@@ -60,7 +60,10 @@ func setup(t *testing.T, options ...setupOption) *env {
 	}
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
-		t.Skip("TEST_DATABASE_URL not set; skipping API test")
+		if os.Getenv("CI") != "" {
+			t.Fatal("TEST_DATABASE_URL must be set in CI: the API tests are the main safety net")
+		}
+		t.Skip("TEST_DATABASE_URL not set; skipping API test (run `make test`)")
 	}
 	ctx := context.Background()
 	pool, err := db.Connect(ctx, dsn)

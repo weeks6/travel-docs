@@ -1,0 +1,1042 @@
+== POST /auth/register -> 201
+{
+  access_token: string
+  expires_in: number
+  refresh_expires_in: number
+  refresh_token: string
+  token_type: string
+  user: {
+    created_at: string
+    display_name: string
+    email: string
+    id: string
+  }
+}
+
+== POST /auth/login -> 200
+{
+  access_token: string
+  expires_in: number
+  refresh_expires_in: number
+  refresh_token: string
+  token_type: string
+  user: {
+    created_at: string
+    display_name: string
+    email: string
+    id: string
+  }
+}
+
+== POST /auth/refresh -> 200
+{
+  access_token: string
+  expires_in: number
+  refresh_expires_in: number
+  refresh_token: string
+  token_type: string
+  user: {
+    created_at: string
+    display_name: string
+    email: string
+    id: string
+  }
+}
+
+== GET /auth/me -> 200
+{
+  created_at: string
+  display_name: string
+  email: string
+  id: string
+}
+
+== PATCH /auth/me -> 200
+{
+  created_at: string
+  display_name: string
+  email: string
+  id: string
+}
+
+== PUT /auth/me/password -> 200
+{
+  access_token: string
+  expires_in: number
+  refresh_expires_in: number
+  refresh_token: string
+  token_type: string
+  user: {
+    created_at: string
+    display_name: string
+    email: string
+    id: string
+  }
+}
+
+== POST /auth/logout -> 204
+(empty)
+
+== POST /auth/logout-all -> 204
+(empty)
+
+== DELETE /auth/me -> 204
+(empty)
+
+== GET /auth/me unauthenticated -> 401
+{
+  error: string
+}
+
+== POST /routes -> 201 [Location] [ETag]
+{
+  ascent_m: number
+  created_at: string
+  descent_m: number
+  description: string
+  distance_m: number
+  has_elevation: bool
+  id: string
+  max_elevation_m: number
+  min_elevation_m: number
+  my_role: string
+  name: string
+  original_filename: string
+  owner_id: string
+  owner_name: string
+  point_count: number
+  started_at: string
+  updated_at: string
+  version: number
+  visibility: string
+}
+
+== GET /routes -> 200
+{
+  items: [{
+    ascent_m: number
+    created_at: string
+    descent_m: number
+    description: string
+    distance_m: number
+    has_elevation: bool
+    id: string
+    max_elevation_m: number
+    min_elevation_m: number
+    my_role: string
+    name: string
+    original_filename: string
+    owner_id: string
+    owner_name: string
+    point_count: number
+    started_at: string
+    updated_at: string
+    version: number
+    visibility: string
+  }
+  page: number
+  page_size: number
+  total: number
+  total_pages: number
+}
+
+== GET /routes?scope=public anonymous -> 200
+{
+  items: [{
+    ascent_m: number
+    created_at: string
+    descent_m: number
+    description: string
+    distance_m: number
+    has_elevation: bool
+    id: string
+    max_elevation_m: number
+    min_elevation_m: number
+    my_role: string
+    name: string
+    original_filename: string
+    owner_id: string
+    owner_name: string
+    point_count: number
+    started_at: string
+    updated_at: string
+    version: number
+    visibility: string
+  }
+  page: number
+  page_size: number
+  total: number
+  total_pages: number
+}
+
+== GET /routes/:id -> 200 [ETag]
+{
+  ascent_m: number
+  created_at: string
+  descent_m: number
+  description: string
+  distance_m: number
+  has_elevation: bool
+  id: string
+  max_elevation_m: number
+  min_elevation_m: number
+  my_role: string
+  name: string
+  original_filename: string
+  owner_id: string
+  owner_name: string
+  point_count: number
+  started_at: string
+  updated_at: string
+  version: number
+  visibility: string
+}
+
+== GET /routes/:id not found -> 404
+{
+  error: string
+}
+
+== PATCH /routes/:id -> 200 [ETag]
+{
+  ascent_m: number
+  created_at: string
+  descent_m: number
+  description: string
+  distance_m: number
+  has_elevation: bool
+  id: string
+  max_elevation_m: number
+  min_elevation_m: number
+  my_role: string
+  name: string
+  original_filename: string
+  owner_id: string
+  owner_name: string
+  point_count: number
+  started_at: string
+  updated_at: string
+  version: number
+  visibility: string
+}
+
+== PATCH /routes/:id stale -> 412
+{
+  error: string
+}
+
+== GET /routes/:id/geometry -> 200
+{
+  geometry: {
+    coordinates: [[[number
+    type: string
+  }
+  properties: {
+    distance_m: number
+    id: string
+    name: string
+    version: number
+  }
+  type: string
+}
+
+== PUT /routes/:id/geometry geojson -> 200 [ETag]
+{
+  ascent_m: number
+  created_at: string
+  descent_m: number
+  description: string
+  distance_m: number
+  has_elevation: bool
+  id: string
+  max_elevation_m: number
+  min_elevation_m: number
+  my_role: string
+  name: string
+  original_filename: string
+  owner_id: string
+  owner_name: string
+  point_count: number
+  started_at: string
+  updated_at: string
+  version: number
+  visibility: string
+}
+
+== PUT /routes/:id/geometry gpx -> 200 [ETag]
+{
+  ascent_m: number
+  created_at: string
+  descent_m: number
+  description: string
+  distance_m: number
+  has_elevation: bool
+  id: string
+  max_elevation_m: number
+  min_elevation_m: number
+  my_role: string
+  name: string
+  original_filename: string
+  owner_id: string
+  owner_name: string
+  point_count: number
+  started_at: null
+  updated_at: string
+  version: number
+  visibility: string
+}
+
+== GET /routes/:id/elevation -> 200
+{
+  points: [{
+    distance_m: number
+    elevation_m: number
+  }
+}
+
+== GET /routes/:id/versions -> 200
+{
+  items: [{
+    ascent_m: number
+    change: string
+    created_at: string
+    created_by_id: string
+    created_by_name: string
+    descent_m: number
+    description: string
+    distance_m: number
+    name: string
+    point_count: number
+    restored_from: null
+    version: number
+  }
+}
+
+== GET /routes/:id/versions/:version/geometry -> 200
+{
+  geometry: {
+    coordinates: [[[number
+    type: string
+  }
+  properties: {
+    id: string
+    version: number
+  }
+  type: string
+}
+
+== POST /routes/:id/versions/:version/restore -> 200 [ETag]
+{
+  ascent_m: number
+  created_at: string
+  descent_m: number
+  description: string
+  distance_m: number
+  has_elevation: bool
+  id: string
+  max_elevation_m: number
+  min_elevation_m: number
+  my_role: string
+  name: string
+  original_filename: string
+  owner_id: string
+  owner_name: string
+  point_count: number
+  started_at: string
+  updated_at: string
+  version: number
+  visibility: string
+}
+
+== PUT /routes/:id/shares -> 200
+{
+  created_at: string
+  display_name: string
+  email: string
+  role: string
+  user_id: string
+}
+
+== GET /routes/:id/shares -> 200
+{
+  items: [{
+    created_at: string
+    display_name: string
+    email: string
+    role: string
+    user_id: string
+  }
+}
+
+== DELETE /routes/:id/shares/:user_id -> 204
+(empty)
+
+== POST /collections -> 201 [Location]
+{
+  created_at: string
+  description: string
+  id: string
+  my_role: string
+  name: string
+  owner_id: string
+  owner_name: string
+  route_count: number
+  updated_at: string
+  visibility: string
+}
+
+== PUT /collections/:id/routes/:route_id -> 204
+(empty)
+
+== GET /collections -> 200
+{
+  items: [{
+    created_at: string
+    description: string
+    id: string
+    my_role: string
+    name: string
+    owner_id: string
+    owner_name: string
+    route_count: number
+    updated_at: string
+    visibility: string
+  }
+  page: number
+  page_size: number
+  total: number
+  total_pages: number
+}
+
+== GET /collections/:id -> 200
+{
+  created_at: string
+  description: string
+  id: string
+  my_role: string
+  name: string
+  owner_id: string
+  owner_name: string
+  route_count: number
+  updated_at: string
+  visibility: string
+}
+
+== PATCH /collections/:id -> 200
+{
+  created_at: string
+  description: string
+  id: string
+  my_role: string
+  name: string
+  owner_id: string
+  owner_name: string
+  route_count: number
+  updated_at: string
+  visibility: string
+}
+
+== GET /routes?collection_id -> 200
+{
+  items: [{
+    ascent_m: number
+    created_at: string
+    descent_m: number
+    description: string
+    distance_m: number
+    has_elevation: bool
+    id: string
+    max_elevation_m: number
+    min_elevation_m: number
+    my_role: string
+    name: string
+    original_filename: string
+    owner_id: string
+    owner_name: string
+    point_count: number
+    started_at: string
+    updated_at: string
+    version: number
+    visibility: string
+  }
+  page: number
+  page_size: number
+  total: number
+  total_pages: number
+}
+
+== PUT /collections/:id/shares -> 200
+{
+  created_at: string
+  display_name: string
+  email: string
+  role: string
+  user_id: string
+}
+
+== GET /collections/:id/shares -> 200
+{
+  items: [{
+    created_at: string
+    display_name: string
+    email: string
+    role: string
+    user_id: string
+  }
+}
+
+== DELETE /collections/:id/shares/:user_id -> 204
+(empty)
+
+== DELETE /collections/:id/routes/:route_id -> 204
+(empty)
+
+== DELETE /collections/:id -> 204
+(empty)
+
+== POST /import-jobs -> 202 [Location]
+{
+  attempts: number
+  cancel_requested: bool
+  created_at: string
+  error: null
+  filename: string
+  finished_at: null
+  id: string
+  kind: string
+  max_attempts: number
+  name: string
+  progress: number
+  revision: number
+  route_id: null
+  run_after: string
+  size_bytes: number
+  stage: string
+  started_at: null
+  status: string
+  updated_at: string
+  visibility: string
+}
+
+== POST /import-jobs replay -> 200 [Location] [Idempotent-Replayed]
+{
+  attempts: number
+  cancel_requested: bool
+  created_at: string
+  error: null
+  filename: string
+  finished_at: string
+  id: string
+  kind: string
+  max_attempts: number
+  name: string
+  progress: number
+  revision: number
+  route_id: string
+  run_after: string
+  size_bytes: number
+  stage: string
+  started_at: string
+  status: string
+  updated_at: string
+  visibility: string
+}
+
+== SSE job event (succeeded)
+{
+  job: {
+    attempts: number
+    cancel_requested: bool
+    created_at: string
+    error: null
+    filename: string
+    finished_at: string
+    id: string
+    kind: string
+    max_attempts: number
+    name: string
+    progress: number
+    revision: number
+    route_id: string
+    run_after: string
+    size_bytes: number
+    stage: string
+    started_at: string
+    status: string
+    updated_at: string
+    visibility: string
+  }
+  type: string
+}
+
+== GET /import-jobs/:id -> 200
+{
+  attempts: number
+  cancel_requested: bool
+  created_at: string
+  error: null
+  filename: string
+  finished_at: string
+  id: string
+  kind: string
+  max_attempts: number
+  name: string
+  progress: number
+  revision: number
+  route_id: string
+  run_after: string
+  size_bytes: number
+  stage: string
+  started_at: string
+  status: string
+  updated_at: string
+  visibility: string
+}
+
+== GET /import-jobs -> 200
+{
+  items: [{
+    attempts: number
+    cancel_requested: bool
+    created_at: string
+    error: null
+    filename: string
+    finished_at: string
+    id: string
+    kind: string
+    max_attempts: number
+    name: string
+    progress: number
+    revision: number
+    route_id: string
+    run_after: string
+    size_bytes: number
+    stage: string
+    started_at: string
+    status: string
+    updated_at: string
+    visibility: string
+  }
+  page: number
+  page_size: number
+  total: number
+  total_pages: number
+}
+
+== POST /import-jobs/:id/cancel finished -> 409
+{
+  error: string
+}
+
+== POST /import-jobs/:id/retry -> 200
+{
+  attempts: number
+  cancel_requested: bool
+  created_at: string
+  error: null
+  filename: string
+  finished_at: null
+  id: string
+  kind: string
+  max_attempts: number
+  name: string
+  progress: number
+  revision: number
+  route_id: null
+  run_after: string
+  size_bytes: number
+  stage: string
+  started_at: null
+  status: string
+  updated_at: string
+  visibility: string
+}
+
+== DELETE /import-jobs/:id -> 204
+(empty)
+
+== POST /import-jobs not XML -> 422
+{
+  error: string
+}
+
+== POST /trips -> 201 [Location]
+{
+  created_at: string
+  description: string
+  ended_at: null
+  id: string
+  location_retention_days: number
+  my_role: string
+  name: string
+  owner_id: string
+  owner_name: string
+  participant_count: number
+  route_id: string
+  route_name: string
+  started_at: null
+  status: string
+  updated_at: string
+}
+
+== POST /trips/:id/invitations -> 201
+{
+  created_at: string
+  id: string
+  invited_by_id: string
+  invited_by_name: string
+  invitee_email: string
+  invitee_id: string
+  invitee_name: string
+  responded_at: null
+  status: string
+  trip_id: string
+  trip_name: string
+  trip_status: string
+}
+
+== SSE invitation event
+{
+  invitation: {
+    created_at: string
+    id: string
+    invited_by_id: string
+    invited_by_name: string
+    invitee_email: string
+    invitee_id: string
+    invitee_name: string
+    responded_at: null
+    status: string
+    trip_id: string
+    trip_name: string
+    trip_status: string
+  }
+  type: string
+}
+
+== GET /trips/:id/invitations -> 200
+{
+  items: [{
+    created_at: string
+    id: string
+    invited_by_id: string
+    invited_by_name: string
+    invitee_email: string
+    invitee_id: string
+    invitee_name: string
+    responded_at: null
+    status: string
+    trip_id: string
+    trip_name: string
+    trip_status: string
+  }
+}
+
+== GET /trip-invitations -> 200
+{
+  items: [{
+    created_at: string
+    id: string
+    invited_by_id: string
+    invited_by_name: string
+    invitee_email: string
+    invitee_id: string
+    invitee_name: string
+    responded_at: null
+    status: string
+    trip_id: string
+    trip_name: string
+    trip_status: string
+  }
+}
+
+== POST /trip-invitations/:id/accept -> 200
+{
+  created_at: string
+  id: string
+  invited_by_id: string
+  invited_by_name: string
+  invitee_email: string
+  invitee_id: string
+  invitee_name: string
+  responded_at: string
+  status: string
+  trip_id: string
+  trip_name: string
+  trip_status: string
+}
+
+== GET /trips -> 200
+{
+  items: [{
+    created_at: string
+    description: string
+    ended_at: null
+    id: string
+    location_retention_days: number
+    my_role: string
+    name: string
+    owner_id: string
+    owner_name: string
+    participant_count: number
+    route_id: string
+    route_name: string
+    started_at: null
+    status: string
+    updated_at: string
+  }
+  page: number
+  page_size: number
+  total: number
+  total_pages: number
+}
+
+== GET /trips/:id -> 200
+{
+  created_at: string
+  description: string
+  ended_at: null
+  id: string
+  location_retention_days: number
+  my_role: string
+  name: string
+  owner_id: string
+  owner_name: string
+  participant_count: number
+  route_id: string
+  route_name: string
+  started_at: null
+  status: string
+  updated_at: string
+}
+
+== GET /trips/:id/participants -> 200
+{
+  items: [{
+    display_name: string
+    joined_at: string
+    last_position: null
+    last_seen_at: null
+    online: bool
+    role: string
+    user_id: string
+  }
+}
+
+== POST /trips/:id/start -> 200
+{
+  created_at: string
+  description: string
+  ended_at: null
+  id: string
+  location_retention_days: number
+  my_role: string
+  name: string
+  owner_id: string
+  owner_name: string
+  participant_count: number
+  route_id: string
+  route_name: string
+  started_at: string
+  status: string
+  updated_at: string
+}
+
+== WS ready
+{
+  participants: [{
+    display_name: string
+    joined_at: string
+    last_position: null
+    last_seen_at: string
+    online: bool
+    role: string
+    user_id: string
+  }
+  trip: {
+    created_at: string
+    description: string
+    ended_at: null
+    id: string
+    location_retention_days: number
+    my_role: string
+    name: string
+    owner_id: string
+    owner_name: string
+    participant_count: number
+    route_id: string
+    route_name: string
+    started_at: string
+    status: string
+    updated_at: string
+  }
+  type: string
+  user_id: string
+}
+
+== POST /trips/:id/locations -> 202
+{
+  accepted: number
+}
+
+== WS location
+{
+  accuracy_m: number
+  ele: number
+  lat: number
+  lon: number
+  recorded_at: string
+  type: string
+  user_id: string
+}
+
+== WS pong
+{
+  type: string
+}
+
+== WS error
+{
+  code: string
+  error: string
+  type: string
+}
+
+== WS presence
+{
+  at: string
+  online: bool
+  type: string
+  user_id: string
+}
+
+== PATCH /trips/:id -> 200
+{
+  created_at: string
+  description: string
+  ended_at: null
+  id: string
+  location_retention_days: number
+  my_role: string
+  name: string
+  owner_id: string
+  owner_name: string
+  participant_count: number
+  route_id: string
+  route_name: string
+  started_at: string
+  status: string
+  updated_at: string
+}
+
+== WS trip
+{
+  type: string
+}
+
+== GET /trips/:id/history -> 200
+{
+  features: [{
+    geometry: {
+      coordinates: [number
+      type: string
+    }
+    properties: {
+      display_name: string
+      first_recorded_at: string
+      last_recorded_at: string
+      point_count: number
+      returned_points: number
+      user_id: string
+    }
+    type: string
+  }
+  type: string
+}
+
+== DELETE /trips/:id/participants/:user_id -> 204
+(empty)
+
+== WS removed
+{
+  type: string
+  user_id: string
+}
+
+== WS participants
+{
+  type: string
+}
+
+== DELETE /trips/:id/invitations/:invitation_id -> 204
+(empty)
+
+== POST /trip-invitations/:id/decline -> 200
+{
+  created_at: string
+  id: string
+  invited_by_id: string
+  invited_by_name: string
+  invitee_email: string
+  invitee_id: string
+  invitee_name: string
+  responded_at: string
+  status: string
+  trip_id: string
+  trip_name: string
+  trip_status: string
+}
+
+== POST /trips/:id/end -> 200
+{
+  created_at: string
+  description: string
+  ended_at: string
+  id: string
+  location_retention_days: number
+  my_role: string
+  name: string
+  owner_id: string
+  owner_name: string
+  participant_count: number
+  route_id: string
+  route_name: string
+  started_at: string
+  status: string
+  updated_at: string
+}
+
+== DELETE /trips/:id -> 204
+(empty)
+
+== WS deleted
+{
+  type: string
+}
+
+== GET /audit-events -> 200
+{
+  items: [{
+    action: string
+    actor_id: string
+    actor_name: string
+    details: {
+      name: string
+    }
+    id: number
+    occurred_at: string
+    owner_id: string
+    subject_id: string
+    subject_type: string
+  }
+}
+
+== DELETE /routes/:id -> 204
+(empty)
+
+== GET / -> 200
+{
+  service: string
+  status: string
+}
+

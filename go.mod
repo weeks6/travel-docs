@@ -2,6 +2,9 @@ module github.com/weeks6/travel-docs
 
 go 1.27.0
 
+// The web app is a separate Node project; keep `go ./...` out of node_modules.
+ignore ./frontend
+
 require (
 	github.com/Masterminds/squirrel v1.5.4
 	github.com/coder/websocket v1.8.15
