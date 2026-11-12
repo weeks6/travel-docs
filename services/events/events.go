@@ -41,7 +41,14 @@ func (h *Handler) stream(c *echo.Context) error {
 
 	// Subscribe before telling the client it is connected, so nothing
 	// published after "ready" is missed.
-	sub := h.Broker.Subscribe(pubsub.UserTopic(userID))
+	sub, err := h.Broker.Subscribe(ctx, pubsub.UserTopic(userID))
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
+		c.Logger().Error("subscribe to user events", "error", err)
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "live events are unavailable; try again later")
+	}
 	defer sub.Close()
 
 	// The server's WriteTimeout would cut the stream.

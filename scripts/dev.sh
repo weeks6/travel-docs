@@ -13,7 +13,7 @@
 # DB_PORT (host port of the Docker database, default 5432; change it if a local
 # PostgreSQL already uses 5432). Set DATABASE_URL to use your own database
 # instead of the Docker one. Press Ctrl+C to stop (the database keeps running;
-# `docker compose stop db`). On Windows, run it from Git Bash.
+# `docker compose stop db nats`). On Windows, run it from Git Bash.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -53,6 +53,10 @@ command -v curl >/dev/null || die "curl is not installed"
 
 if [[ -n "${DATABASE_URL:-}" ]]; then
   log "Using DATABASE_URL from the environment (not starting the Docker database)"
+  if [[ -z "${NATS_URL:-}" && -z "${PUBSUB:-}" ]]; then
+    log "NATS_URL not set: using the in-process event broker (PUBSUB=local)"
+    export PUBSUB=local
+  fi
 else
   command -v docker >/dev/null || die "Docker is not installed"
   # Docker Desktop on macOS may only be reachable through its own context.
@@ -72,8 +76,8 @@ else
       die "Docker is not running. Start it and try again."
     fi
   fi
-  log "Starting the database…"
-  docker compose up -d --wait db || die "could not start the database. If port $DB_PORT is taken (e.g. by a local PostgreSQL), run with DB_PORT=55432"
+  log "Starting the database and NATS…"
+  docker compose up -d --wait db nats || die "could not start the database. If port $DB_PORT is taken (e.g. by a local PostgreSQL), run with DB_PORT=55432"
   export DATABASE_URL="postgres://travel:travel@localhost:$DB_PORT/travel_docs?sslmode=disable"
 fi
 

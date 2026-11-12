@@ -171,9 +171,15 @@ func (r *Runner) signal() {
 // requests for jobs running here.
 func (r *Runner) listen(ctx context.Context) {
 	for ctx.Err() == nil {
-		sub := r.broker.Subscribe(ControlTopic)
-		r.handleControl(ctx, sub)
-		sub.Close()
+		sub, err := r.broker.Subscribe(ctx, ControlTopic)
+		if err != nil {
+			if ctx.Err() == nil {
+				r.log.Error("subscribe to import job control", "error", err)
+			}
+		} else {
+			r.handleControl(ctx, sub)
+			sub.Close()
+		}
 		select {
 		case <-ctx.Done():
 		case <-time.After(time.Second):

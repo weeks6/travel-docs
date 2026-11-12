@@ -87,16 +87,18 @@ func run(log *slog.Logger) error {
 
 	var broker pubsub.Broker
 	if cfg.pubsub == "local" {
-		broker = pubsub.NewLocal()
+		local := pubsub.NewLocal()
+		defer local.Close()
+		broker = local
 	} else {
-		pg := pubsub.NewPostgres(pool, log.With("component", "pubsub"))
-		background.Go(func() { pg.Run(bgCtx) })
-		select {
-		case <-pg.Ready():
-		case <-time.After(10 * time.Second):
-			return errors.New("pubsub: could not LISTEN within 10s")
+		nb, err := pubsub.ConnectNATS(cfg.natsURL, log.With("component", "pubsub"))
+		if err != nil {
+			return err
 		}
-		broker = pg
+		// Runs on return, after the HTTP server, streams and workers below
+		// have stopped using it.
+		defer nb.Close()
+		broker = nb
 	}
 
 	srv, err := server.New(server.Config{
@@ -201,6 +203,7 @@ type config struct {
 	publicKeyFile   string
 	corsOrigins     []string
 	pubsub          string
+	natsURL         string
 	uploadSlots     int
 	shutdownTimeout time.Duration
 	jobs            jobs.Config
@@ -214,13 +217,14 @@ func loadConfig() (config, error) {
 		metricsAddr:    getenv("METRICS_ADDR", ":9090"),
 		privateKeyFile: getenv("JWT_PRIVATE_KEY_FILE", "test_key.pem"),
 		publicKeyFile:  getenv("JWT_PUBLIC_KEY_FILE", "test_key.pub.pem"),
-		pubsub:         getenv("PUBSUB", "postgres"),
+		pubsub:         getenv("PUBSUB", "nats"),
+		natsURL:        getenv("NATS_URL", "nats://localhost:4222"),
 	}
 	if c.metricsAddr == "off" {
 		c.metricsAddr = ""
 	}
-	if c.pubsub != "postgres" && c.pubsub != "local" {
-		return c, fmt.Errorf("PUBSUB must be postgres or local, got %q", c.pubsub)
+	if c.pubsub != "nats" && c.pubsub != "local" {
+		return c, fmt.Errorf("PUBSUB must be nats or local, got %q", c.pubsub)
 	}
 	for _, o := range strings.Split(getenv("CORS_ORIGINS", "http://localhost:3000"), ",") {
 		if o = strings.TrimSpace(o); o != "" {

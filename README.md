@@ -2,7 +2,8 @@
 
 - **API** (Go, this directory): routes, collections, background GPX imports, group trips with live locations over WebSockets.
 - **Web UI** (Next.js, [`frontend/`](frontend/)): talks to the API directly from the browser (CORS, WebSocket).
-- **PostgreSQL + PostGIS**: all data, the import job queue, and event fan-out between API instances (`LISTEN/NOTIFY`).
+- **PostgreSQL + PostGIS**: all data and the import job queue.
+- **NATS**: real-time event fan-out between API instances (core pub/sub; best effort, clients resync after a drop).
 
 ## Running
 
@@ -17,7 +18,7 @@ It starts Docker and the database if needed, runs the API with live reload (when
 Locally by hand (Go and Node.js installed):
 
 ```sh
-docker compose up -d db                 # PostgreSQL 17 + PostGIS (also creates travel_docs_test)
+docker compose up -d db nats            # PostgreSQL 17 + PostGIS (also creates travel_docs_test), NATS
 LOG_FORMAT=text go run .                # API on http://localhost:8080; migrations run on startup
 cd frontend && npm ci && npm run dev    # web UI on http://localhost:3000
 ```
@@ -25,7 +26,7 @@ cd frontend && npm ci && npm run dev    # web UI on http://localhost:3000
 Everything in Docker:
 
 ```sh
-docker compose up --build   # database, API (8080, metrics on 9090) and web UI (3000)
+docker compose up --build   # database, NATS, API (8080, metrics on 9090) and web UI (3000)
 docker compose watch        # same, and rebuilds when files change
 OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318 docker compose --profile tracing up --build   # + Jaeger at http://localhost:16686
 ```
@@ -42,7 +43,8 @@ The web UI's API address is built into its bundle: set `NEXT_PUBLIC_API_URL` whe
 | `CORS_ORIGINS` | `http://localhost:3000` | Comma-separated browser origins allowed to call the API (and open WebSockets); `*` allows any |
 | `JWT_PRIVATE_KEY_FILE` / `JWT_PUBLIC_KEY_FILE` | `test_key.pem` / `test_key.pub.pem` | ES256, development only |
 | `LOG_FORMAT` / `LOG_LEVEL` | `json` / `info` | `text` is easier to read locally |
-| `PUBSUB` | `postgres` | `postgres` (LISTEN/NOTIFY, works across instances) or `local` (single instance) |
+| `PUBSUB` | `nats` | `nats` (works across instances) or `local` (in-process, single instance only) |
+| `NATS_URL` | `nats://localhost:4222` | NATS server(s), comma-separated for a cluster |
 | `IMPORT_WORKERS` | `2` | GPX imports processed at the same time per instance (bounds memory) |
 | `UPLOAD_SLOTS` | `4` | Uploads read into memory at the same time; more wait, then get 503 |
 | `IMPORT_JOB_RETENTION` | `168h` | Finished import jobs are deleted after this |
@@ -198,7 +200,7 @@ Close codes: **4001** token missing, invalid or expired (refresh, then reconnect
 - **Tracing** (OpenTelemetry, when `OTEL_EXPORTER_OTLP_ENDPOINT` is set): a span per request (continuing incoming `traceparent` headers) and per import job, with parse, analyze and save steps.
 - **Rate limits** answer **429** with `Retry-After`.
 - **Graceful shutdown** (SIGTERM/Ctrl+C): stop accepting connections, tell event streams and WebSockets to reconnect elsewhere (close code 1001), finish in-flight requests, let import jobs finish or requeue them, then stop background work.
-- **Several instances** can run against the same database: the job queue, leases and `LISTEN/NOTIFY` events work across them.
+- **Several instances** can run against the same database: the job queue and leases work across them, and events go through the shared NATS server.
 
 ## Tests
 

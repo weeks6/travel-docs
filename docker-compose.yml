@@ -17,12 +17,26 @@ services:
       timeout: 5s
       retries: 20
 
+  # Event fan-out between API instances (core NATS pub/sub).
+  nats:
+    image: nats:2.15-alpine
+    command: ["--http_port", "8222"] # monitoring endpoints on :8222
+    ports:
+      - "${NATS_PORT:-4222}:4222"
+      - "8222:8222"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8222/healthz"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+
   # `docker compose up --build` runs everything in containers;
   # `docker compose watch` also rebuilds when source files change.
   app:
     build: .
     environment:
       DATABASE_URL: postgres://travel:travel@db:5432/travel_docs?sslmode=disable
+      NATS_URL: nats://nats:4222
       JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private_key
       JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public_key
       CORS_ORIGINS: http://localhost:3000
@@ -39,6 +53,8 @@ services:
     stop_grace_period: 35s
     depends_on:
       db:
+        condition: service_healthy
+      nats:
         condition: service_healthy
     develop:
       watch:

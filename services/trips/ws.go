@@ -199,7 +199,11 @@ func (s *session) run(ctx context.Context) (websocket.StatusCode, string) {
 	s.log = s.log.With("user_id", userID)
 
 	// 2. Subscribe before loading the snapshot so no event falls between.
-	sub := h.broker.Subscribe(pubsub.TripTopic(s.tripID))
+	sub, err := h.broker.Subscribe(ctx, pubsub.TripTopic(s.tripID))
+	if err != nil {
+		s.log.Error("subscribe to trip events", "error", err)
+		return websocket.StatusTryAgainLater, "live events are unavailable; reconnect later"
+	}
 	defer sub.Close()
 
 	trip, err := h.store.Get(ctx, userID, s.tripID)

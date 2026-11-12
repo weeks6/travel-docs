@@ -32,6 +32,7 @@ import (
 	"github.com/weeks6/travel-docs/db"
 	"github.com/weeks6/travel-docs/jobs"
 	"github.com/weeks6/travel-docs/pubsub"
+	"github.com/weeks6/travel-docs/pubsub/natstest"
 	"github.com/weeks6/travel-docs/server"
 	"github.com/weeks6/travel-docs/services/auth"
 	"github.com/weeks6/travel-docs/services/routes"
@@ -88,13 +89,9 @@ func setup(t *testing.T, options ...setupOption) *env {
 		log = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	broker := pubsub.NewPostgres(pool, log)
-	brokerDone := make(chan struct{})
-	go func() { defer close(brokerDone); broker.Run(ctx) }()
-	select {
-	case <-broker.Ready():
-	case <-time.After(10 * time.Second):
-		t.Fatal("pubsub listener did not start")
+	broker, err := pubsub.ConnectNATS(natstest.Run(t).URL(), log)
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	handler, err := server.New(server.Config{
@@ -126,7 +123,7 @@ func setup(t *testing.T, options ...setupOption) *env {
 		srv.Close()
 		cancel()
 		<-runnerDone
-		<-brokerDone
+		broker.Close()
 	})
 	return &env{t: t, srv: srv, pool: pool, priv: priv, pub: pub, broker: broker, handler: handler}
 }
