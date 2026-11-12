@@ -10,7 +10,6 @@
 package imports
 
 import (
-	"encoding/json"
 	"time"
 
 	"github.com/weeks6/travel-docs/internal/apperr"
@@ -79,11 +78,12 @@ type ListResult = paging.Page[Job]
 
 // Event is published on the owner's user topic whenever a job changes.
 type Event struct {
-	Type string `json:"type"` // "job"
+	Type string `json:"type"` // EventJob
 	Job  Job    `json:"job"`
 }
 
-func eventJSON(j Job) ([]byte, error) { return json.Marshal(Event{Type: "job", Job: j}) }
+// EventJob is the Type of job events.
+const EventJob = "job"
 
 // control is published on the "jobs" topic to wake workers on every
 // instance or cancel a running job wherever it runs.

@@ -115,6 +115,19 @@ type Input struct {
 // ListResult is one page of trips.
 type ListResult = paging.Page[Trip]
 
+// Event types: the "type" field of live events.
+const (
+	// On the trip topic, sent to WebSocket clients.
+	EventLocation     = "location"     // LocationEvent
+	EventPresence     = "presence"     // PresenceEvent
+	EventTrip         = "trip"         // ChangeEvent: details or status changed; reload the trip
+	EventParticipants = "participants" // ChangeEvent: reload participants
+	EventRemoved      = "removed"      // ChangeEvent: UserID left or was removed
+	EventDeleted      = "deleted"      // ChangeEvent: the trip was deleted
+	// On the user topic, sent over GET /events.
+	EventInvitation = "invitation" // UserEvent
+)
+
 // Real-time events published on the trip topic and sent to WebSocket clients.
 type (
 	// LocationEvent: a participant's new position.

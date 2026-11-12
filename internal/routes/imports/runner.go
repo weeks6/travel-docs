@@ -508,13 +508,7 @@ func (r *Runner) publish(ctx context.Context, j Job) {
 
 // Publish sends a job update to the owner's event stream.
 func Publish(ctx context.Context, b pubsub.Broker, log *slog.Logger, j Job) {
-	data, err := eventJSON(j)
-	if err == nil {
-		err = b.Publish(ctx, pubsub.UserTopic(j.OwnerID), data)
-	}
-	if err != nil && ctx.Err() == nil {
-		log.Warn("publish import job update", "job_id", j.ID, "error", err)
-	}
+	pubsub.Notify(ctx, b, log, pubsub.UserTopic(j.OwnerID), Event{Type: EventJob, Job: j})
 }
 
 // progressReader reports how much of the file was read and stops when ctx

@@ -254,10 +254,10 @@ func (s *session) run(ctx context.Context) (websocket.StatusCode, string) {
 			var ev ChangeEvent
 			if json.Unmarshal(data, &ev) == nil {
 				switch {
-				case ev.Type == "removed" && ev.UserID == userID:
+				case ev.Type == EventRemoved && ev.UserID == userID:
 					s.write(ctx, data)
 					return CloseForbidden, "you are no longer a participant of this trip"
-				case ev.Type == "deleted":
+				case ev.Type == EventDeleted:
 					s.write(ctx, data)
 					return CloseNotFound, "the trip was deleted"
 				}
@@ -352,7 +352,7 @@ func (s *session) location(ctx context.Context, pos Position) error {
 	case err == nil:
 		metrics.LocationUpdates.WithLabelValues("ws").Inc()
 		if newest != nil {
-			h.publish(ctx, s.tripID, LocationEvent{Type: "location", UserID: s.userID, Position: *newest})
+			h.publish(ctx, s.tripID, LocationEvent{Type: EventLocation, UserID: s.userID, Position: *newest})
 		}
 		return nil
 	case errors.Is(err, ErrNotFound):
@@ -400,11 +400,5 @@ func (s *session) write(ctx context.Context, data []byte) error {
 
 // publish sends an event to everyone connected to the trip, on all instances.
 func (h *Hub) publish(ctx context.Context, tripID string, ev any) {
-	data, err := json.Marshal(ev)
-	if err == nil {
-		err = h.broker.Publish(ctx, pubsub.TripTopic(tripID), data)
-	}
-	if err != nil && ctx.Err() == nil {
-		h.log.Warn("publish trip event", "trip_id", tripID, "error", err)
-	}
+	pubsub.Notify(ctx, h.broker, h.log, pubsub.TripTopic(tripID), ev)
 }

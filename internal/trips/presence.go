@@ -38,7 +38,7 @@ func (h *Hub) heartbeat(ctx context.Context, tripID, userID string) {
 	if err := h.store.SetPresence(ctx, tripID, userID, true); err != nil && ctx.Err() == nil {
 		h.log.Warn("update presence", "trip_id", tripID, "user_id", userID, "error", err)
 	}
-	h.publish(ctx, tripID, PresenceEvent{Type: "presence", UserID: userID, Online: true, At: time.Now().UTC()})
+	h.publish(ctx, tripID, PresenceEvent{Type: EventPresence, UserID: userID, Online: true, At: time.Now().UTC()})
 }
 
 // disconnected marks the participant offline when their last connection
@@ -60,5 +60,5 @@ func (h *Hub) disconnected(tripID, userID string) {
 	if err := h.store.SetPresence(ctx, tripID, userID, false); err != nil {
 		h.log.Warn("update presence", "trip_id", tripID, "user_id", userID, "error", err)
 	}
-	h.publish(ctx, tripID, PresenceEvent{Type: "presence", UserID: userID, Online: false, At: time.Now().UTC()})
+	h.publish(ctx, tripID, PresenceEvent{Type: EventPresence, UserID: userID, Online: false, At: time.Now().UTC()})
 }

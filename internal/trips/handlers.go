@@ -124,7 +124,7 @@ func (h *Handler) update(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	h.publish(ctx, id, ChangeEvent{Type: "trip"})
+	h.publish(ctx, id, ChangeEvent{Type: EventTrip})
 	return c.JSON(http.StatusOK, t)
 }
 
@@ -137,7 +137,7 @@ func (h *Handler) delete(c *echo.Context) error {
 	if err := h.Store.Delete(ctx, actor, id); err != nil {
 		return err
 	}
-	h.publish(ctx, id, ChangeEvent{Type: "deleted"})
+	h.publish(ctx, id, ChangeEvent{Type: EventDeleted})
 	return c.NoContent(http.StatusNoContent)
 }
 
@@ -155,7 +155,7 @@ func (h *Handler) setStatus(c *echo.Context, to string) error {
 	if err != nil {
 		return err
 	}
-	h.publish(ctx, id, ChangeEvent{Type: "trip"})
+	h.publish(ctx, id, ChangeEvent{Type: EventTrip})
 	return c.JSON(http.StatusOK, t)
 }
 
@@ -184,8 +184,8 @@ func (h *Handler) removeParticipant(c *echo.Context) error {
 	if err := h.Store.RemoveParticipant(ctx, actor, id, userID); err != nil {
 		return err
 	}
-	h.publish(ctx, id, ChangeEvent{Type: "removed", UserID: userID})
-	h.publish(ctx, id, ChangeEvent{Type: "participants"})
+	h.publish(ctx, id, ChangeEvent{Type: EventRemoved, UserID: userID})
+	h.publish(ctx, id, ChangeEvent{Type: EventParticipants})
 	return c.NoContent(http.StatusNoContent)
 }
 
@@ -276,7 +276,7 @@ func (h *Handler) respond(c *echo.Context, accept bool) error {
 		return err
 	}
 	if accept {
-		h.publish(ctx, inv.TripID, ChangeEvent{Type: "participants"})
+		h.publish(ctx, inv.TripID, ChangeEvent{Type: EventParticipants})
 	}
 	if inv.InvitedByID != nil {
 		h.notifyUser(ctx, *inv.InvitedByID, inv)
@@ -309,7 +309,7 @@ func (h *Handler) addLocations(c *echo.Context) error {
 	}
 	metrics.LocationUpdates.WithLabelValues("http").Add(float64(len(req.Points)))
 	if newest != nil {
-		h.publish(ctx, id, LocationEvent{Type: "location", UserID: actor, Position: *newest})
+		h.publish(ctx, id, LocationEvent{Type: EventLocation, UserID: actor, Position: *newest})
 	}
 	return c.JSON(http.StatusAccepted, map[string]any{"accepted": len(req.Points)})
 }
@@ -357,13 +357,7 @@ func (h *Handler) publish(ctx context.Context, tripID string, ev any) { h.Hub.pu
 
 // notifyUser sends an invitation update to a user's event stream.
 func (h *Handler) notifyUser(ctx context.Context, userID string, inv Invitation) {
-	data, err := json.Marshal(UserEvent{Type: "invitation", Invitation: inv})
-	if err == nil {
-		err = h.Broker.Publish(ctx, pubsub.UserTopic(userID), data)
-	}
-	if err != nil {
-		h.Log.Warn("publish invitation event", "user_id", userID, "error", err)
-	}
+	pubsub.Notify(ctx, h.Broker, h.Log, pubsub.UserTopic(userID), UserEvent{Type: EventInvitation, Invitation: inv})
 }
 
 func actorAndTrip(c *echo.Context) (actor, id string, err error) {

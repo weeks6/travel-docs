@@ -2,7 +2,6 @@ package imports
 
 import (
 	"context"
-	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -158,13 +157,10 @@ func (h *Handler) create(c *echo.Context) error {
 	return c.JSON(http.StatusAccepted, job)
 }
 
-// control sends a message to the workers of every instance.
+// control sends a message to the workers of every instance. If it is
+// lost, workers still find the job when they next poll.
 func (h *Handler) control(ctx context.Context, m control) {
-	data, _ := json.Marshal(m)
-	if err := h.Broker.Publish(ctx, ControlTopic, data); err != nil {
-		// Workers still find the job when they next poll.
-		h.Log.Warn("notify import workers", "op", m.Op, "error", err)
-	}
+	pubsub.Notify(ctx, h.Broker, h.Log, ControlTopic, m)
 }
 
 func printableASCII(s string) bool {
