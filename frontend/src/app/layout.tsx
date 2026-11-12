@@ -6,6 +6,7 @@ import { Header } from "@/components/Header";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { EventsProvider } from "@/lib/events";
 import { SessionProvider } from "@/lib/session";
+import { themeScript } from "@/lib/theme-script";
 import { cn } from "@/lib/utils";
 
 // Self-hosted at build time (no requests to Google from the browser).
@@ -19,7 +20,11 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={cn(body.variable, display.variable)}>
+    // The head script sets the theme class before React hydrates.
+    <html lang="en" className={cn(body.variable, display.variable)} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+      </head>
       <body className="flex h-dvh flex-col overflow-hidden">
         <SessionProvider>
           <EventsProvider>

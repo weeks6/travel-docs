@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { AccountDialog } from "./account/AccountDialog";
 import { ActivityDialog } from "./account/ActivityDialog";
 import { LoginDialog } from "./account/LoginDialog";
+import { ThemeToggle } from "./ThemeToggle";
 import { Avatar, AvatarFallback } from "./ui/avatar";
 import { Button } from "./ui/button";
 import {
@@ -79,6 +80,7 @@ export function Header() {
           <NavLinks />
         </Suspense>
         <div className="ml-auto flex items-center gap-2">
+          <ThemeToggle />
           {!ready ? null : user ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
