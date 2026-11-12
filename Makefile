@@ -4,7 +4,7 @@
 DB_PORT ?= 5432
 TEST_DATABASE_URL ?= postgres://travel:travel@localhost:$(DB_PORT)/travel_docs_test?sslmode=disable
 
-.PHONY: test test-unit contract-update lint frontend-check seed scrape scraper-test
+.PHONY: test test-unit contract-update lint frontend-check seed db-dump db-restore scrape scraper-test
 
 test:
 	docker compose up -d --wait db
@@ -32,6 +32,12 @@ seed:
 
 # The route scraper (scraper/, a separate service): one run against the
 # local API. Options: cd scraper && go run . -h
+db-dump: ## Dump the database and scraper state to dumps/ (to load elsewhere with db-restore)
+	scripts/db-dump.sh
+
+db-restore: ## Replace the database with a dump: make db-restore FILE=dumps/....tar.gz
+	scripts/db-restore.sh "$(FILE)"
+
 scrape:
 	cd scraper && go run .
 

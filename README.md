@@ -187,7 +187,16 @@ Durations are 1 second to 60 days; dates may not be in the future.
 
 ## Route scraper
 
-[`scraper/`](scraper/README.md) is a separate service (own module, process and container) that finds public hiking and cycling routes in OpenStreetMap, validates them, and exports new or changed ones into the app through its API, with OSM attribution. `make scrape` runs it once against the local API; `docker compose --profile scraper up` runs it daily.
+[`scraper/`](scraper/README.md) is a separate service (own module, process and container) that finds public hiking and cycling routes around the world, validates them, and exports new or changed ones into the app through its API, with each source's attribution. Sources: OpenStreetMap (worldwide), the U.S. National Park Service and Forest Service, New Zealand's Department of Conservation and Parks Canada; it works through about 45 regions on every continent, a few per run. `make scrape` runs it once against the local API; `docker compose --profile scraper up` runs it daily.
+
+## Moving data to another machine
+
+```sh
+scripts/db-dump.sh                          # or: make db-dump
+scripts/db-restore.sh dumps/travel-docs-….tar.gz   # on the other machine, in a clone of this repository
+```
+
+The archive holds the whole database (routes with their history, users, collections, trips) and the route scraper's state, so the scraper there updates the copied routes instead of importing them again. Restoring **replaces** the Docker database; it asks first (`--yes` skips that) and stops and restarts the API and scraper containers around it. The dump includes users' emails and password hashes, so keep it private (`dumps/` is git-ignored).
 
 ## Tests
 

@@ -12,12 +12,11 @@ import (
 )
 
 // OSMSource finds hiking and cycling route relations in OpenStreetMap
-// through the Overpass API. OSM data is open (ODbL) and may be reused with
-// attribution; Overpass asks for modest use, so queries are per region,
-// sequential, with backoff on load errors.
+// through the Overpass API, anywhere in the world. OSM data is open (ODbL)
+// and may be reused with attribution; Overpass asks for modest use, so
+// queries are per region, sequential, with backoff on load errors.
 type OSMSource struct {
 	Endpoint  string   // Overpass interpreter URL
-	Regions   []BBox   // areas to scan
 	Routes    []string // OSM route types, e.g. hiking, bicycle
 	UserAgent string
 	HTTP      *http.Client
@@ -40,21 +39,14 @@ func ParseBBox(s string) (BBox, error) {
 
 func (s *OSMSource) Name() string { return "osm" }
 
-func (s *OSMSource) Tracks(ctx context.Context) ([]Track, error) {
-	var out []Track
-	seen := map[int64]bool{} // relations crossing two regions
-	for _, r := range s.Regions {
-		rels, err := s.query(ctx, r)
-		if err != nil {
-			return out, err
-		}
-		for _, rel := range rels {
-			if seen[rel.ID] {
-				continue
-			}
-			seen[rel.ID] = true
-			out = append(out, rel.track())
-		}
+func (s *OSMSource) Tracks(ctx context.Context, r Region) ([]Track, error) {
+	rels, err := s.query(ctx, r.BBox)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Track, len(rels))
+	for i, rel := range rels {
+		out[i] = rel.track()
 	}
 	return out, nil
 }

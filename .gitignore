@@ -1,3 +1,6 @@
 tmp/
 apitest/testdata/*.got
 scraper/data/
+
+# Database dumps (scripts/db-dump.sh): contain user data
+dumps/

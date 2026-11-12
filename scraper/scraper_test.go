@@ -274,7 +274,7 @@ func TestRunExportsNewAndChangedRoutesOnly(t *testing.T) {
 	defer app.Close()
 
 	cfg, err := parseFlags([]string{"-api", app.URL, "-overpass", overpass.URL,
-		"-state", filepath.Join(t.TempDir(), "state.json"), "-regions", "46.5,7.8,46.6,8.0"})
+		"-state", filepath.Join(t.TempDir(), "state.json"), "-regions", "46.5,7.8,46.6,8.0", "-sources", "osm"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -324,7 +324,13 @@ func TestParseFlags(t *testing.T) {
 	if err != nil || len(cfg.regions) != 2 || strings.Join(cfg.routes, ",") != "hiking,mtb" {
 		t.Fatalf("%+v %v", cfg, err)
 	}
-	for _, bad := range [][]string{{"-regions", "47,7,46,8"}, {"-regions", "x"}, {"-routes", `hiking"]`}, {"-visibility", "friends"}} {
+	// Defaults: the whole world, every source.
+	cfg, err = parseFlags(nil)
+	if err != nil || len(cfg.regions) != len(worldRegions()) || len(cfg.sources) != len(datasets)+1 {
+		t.Fatalf("defaults: %d regions, sources %v, %v", len(cfg.regions), cfg.sources, err)
+	}
+	for _, bad := range [][]string{{"-regions", "47,7,46,8"}, {"-regions", "x"}, {"-routes", `hiking"]`}, {"-visibility", "friends"},
+		{"-sources", "osm,strava"}, {"-sources", ""}} {
 		if _, err := parseFlags(bad); err == nil {
 			t.Errorf("%v accepted", bad)
 		}

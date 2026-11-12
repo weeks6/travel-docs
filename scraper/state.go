@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -14,6 +15,9 @@ import (
 type State struct {
 	path    string
 	Records map[string]*Record `json:"records"` // by Track.SourceID
+	// Cursor is the next region to scan when runs take turns over the
+	// regions (-regions-per-run).
+	Cursor int `json:"cursor"`
 }
 
 // Record is the outcome for one source track.
@@ -22,6 +26,54 @@ type Record struct {
 	Fingerprint string    `json:"fingerprint,omitempty"` // of the exported geometry
 	Rejected    string    `json:"rejected,omitempty"`    // validation failure, if any
 	UpdatedAt   time.Time `json:"updated_at"`
+	// Where the exported route starts and ends, and how long it is: to
+	// recognize the same trail coming from another source.
+	Start   *Point  `json:"start,omitempty"`
+	End     *Point  `json:"end,omitempty"`
+	LengthM float64 `json:"length_m,omitempty"`
+}
+
+// Duplicate tolerances: another source's route starting and ending this
+// close, with a length this similar, is the same trail.
+const (
+	dupEndM      = 150
+	dupLengthPct = 0.15
+)
+
+// DuplicateOf returns the source ID of an exported route from another
+// source that is the same trail as t (same ends, either direction, and
+// about the same length), or "".
+func (s *State) DuplicateOf(t Track) string {
+	start, end := t.Ends()
+	length := t.LengthM()
+	src := sourceOf(t.SourceID)
+	for id, r := range s.Records {
+		if r.RouteID == "" || r.Start == nil || r.End == nil || sourceOf(id) == src {
+			continue
+		}
+		if abs(r.LengthM-length) > dupLengthPct*max(r.LengthM, length) {
+			continue
+		}
+		same := haversine(start, *r.Start) <= dupEndM && haversine(end, *r.End) <= dupEndM
+		reversed := haversine(start, *r.End) <= dupEndM && haversine(end, *r.Start) <= dupEndM
+		if same || reversed {
+			return id
+		}
+	}
+	return ""
+}
+
+// sourceOf is the source part of a source ID ("osm" in "osm:relation:1").
+func sourceOf(id string) string {
+	src, _, _ := strings.Cut(id, ":")
+	return src
+}
+
+func abs(x float64) float64 {
+	if x < 0 {
+		return -x
+	}
+	return x
 }
 
 func LoadState(path string) (*State, error) {
