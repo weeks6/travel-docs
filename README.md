@@ -184,6 +184,10 @@ Durations are 1 second to 60 days; dates may not be in the future.
 
 `make seed` (or `scripts/dev.sh --seed`) fills a running API with 22 cycle-touring routes from [gps-touring/sample-gpx](https://github.com/gps-touring/sample-gpx), owned by `demo@example.com` / `demo-password` and grouped into two collections. The files are downloaded at seed time from a pinned commit (the repository has no license, so they are not copied here). Running it again only adds what is missing. Options: `go run ./cmd/seed -h` (other API URL, account, private visibility).
 
+## Route scraper
+
+[`scraper/`](scraper/README.md) is a separate service (own module, process and container) that finds public hiking and cycling routes in OpenStreetMap, validates them, and exports new or changed ones into the app through its API, with OSM attribution. `make scrape` runs it once against the local API; `docker compose --profile scraper up` runs it daily.
+
 ## Tests
 
 ```sh

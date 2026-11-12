@@ -1,2 +1,3 @@
 tmp/
 apitest/testdata/*.got
+scraper/data/

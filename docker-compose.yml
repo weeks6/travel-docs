@@ -92,6 +92,24 @@ services:
       - "16686:16686" # UI
       - "4318:4318" # OTLP over HTTP
 
+  # Separate service: finds public routes (OpenStreetMap) and exports them
+  # into the app through its API, once a day. Opt in with
+  # `docker compose --profile scraper up`.
+  scraper:
+    build: ./scraper
+    profiles: [scraper]
+    environment:
+      SCRAPER_API: http://app:8080
+      SCRAPER_EMAIL: ${SCRAPER_EMAIL:-scraper@example.com}
+      SCRAPER_PASSWORD: ${SCRAPER_PASSWORD:-scraper-password}
+      SCRAPER_REGIONS: ${SCRAPER_REGIONS:-46.45,7.75,46.7,8.1}
+      SCRAPER_INTERVAL: ${SCRAPER_INTERVAL:-24h}
+      SCRAPER_LIMIT: ${SCRAPER_LIMIT:-50}
+    volumes:
+      - scraper-state:/data
+    depends_on:
+      - app
+
 # Development keys only. Generate new keys for any real deployment.
 secrets:
   jwt_private_key:
@@ -101,3 +119,4 @@ secrets:
 
 volumes:
   pgdata:
+  scraper-state:

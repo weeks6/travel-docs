@@ -4,7 +4,7 @@
 DB_PORT ?= 5432
 TEST_DATABASE_URL ?= postgres://travel:travel@localhost:$(DB_PORT)/travel_docs_test?sslmode=disable
 
-.PHONY: test test-unit contract-update lint frontend-check seed
+.PHONY: test test-unit contract-update lint frontend-check seed scrape scraper-test
 
 test:
 	docker compose up -d --wait db
@@ -29,3 +29,11 @@ frontend-check:
 # (needs a running API; see cmd/seed for options).
 seed:
 	go run ./cmd/seed
+
+# The route scraper (scraper/, a separate service): one run against the
+# local API. Options: cd scraper && go run . -h
+scrape:
+	cd scraper && go run .
+
+scraper-test:
+	cd scraper && go vet ./... && go test -race -count=1 ./...
