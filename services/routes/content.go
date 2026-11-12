@@ -10,6 +10,7 @@ import (
 
 	"github.com/weeks6/travel-docs/apperr"
 	"github.com/weeks6/travel-docs/gpx"
+	"github.com/weeks6/travel-docs/internal/textutil"
 	"github.com/weeks6/travel-docs/routestats"
 )
 
@@ -56,8 +57,8 @@ func BuildContent(f *gpx.File, filename, nameOverride string) (Content, error) {
 	}
 
 	c := Content{
-		Name:             truncate(name, maxNameLength),
-		Description:      truncate(f.Description, maxDescriptionLength),
+		Name:             textutil.Truncate(name, maxNameLength),
+		Description:      textutil.Truncate(f.Description, maxDescriptionLength),
 		OriginalFilename: filename,
 		DistanceM:        stats.DistanceM,
 		AscentM:          stats.AscentM,
@@ -173,12 +174,4 @@ func validateVisibility(v string) error {
 		return apperr.New(apperr.Invalid, "visibility must be private or public")
 	}
 	return nil
-}
-
-func truncate(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[:n])
 }

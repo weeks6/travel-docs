@@ -14,6 +14,7 @@ import (
 	"github.com/weeks6/travel-docs/apperr"
 	"github.com/weeks6/travel-docs/audit"
 	"github.com/weeks6/travel-docs/db"
+	"github.com/weeks6/travel-docs/internal/paging"
 	"github.com/weeks6/travel-docs/routestats"
 	"github.com/weeks6/travel-docs/sharing"
 )
@@ -61,11 +62,7 @@ func scanRoute(row pgx.Row) (Route, error) {
 // nullID turns "" (anonymous) into SQL NULL.
 func nullID(id string) any { return audit.NullID(id) }
 
-type querier interface {
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-}
-
-func (s *Store) get(ctx context.Context, q querier, actor, id string) (Route, error) {
+func (s *Store) get(ctx context.Context, q db.Querier, actor, id string) (Route, error) {
 	query, args, err := selectRoutes(actor).Where(sq.Eq{"r.id": id}).ToSql()
 	if err != nil {
 		return Route{}, err
@@ -398,7 +395,8 @@ var sortColumns = map[SortField]string{
 
 // List returns one page of routes the actor can see.
 func (s *Store) List(ctx context.Context, actor string, p ListParams) (ListResult, error) {
-	res := ListResult{Page: p.Page, PageSize: p.PageSize, Items: []Route{}}
+	page := paging.Params{Page: p.Page, PageSize: p.PageSize}
+	res := paging.Empty[Route](page)
 	if (p.Scope == ScopeMine || p.Scope == ScopeShared) && actor == "" {
 		return res, apperr.New(apperr.Unauthorized, "log in to list your own or shared routes")
 	}
@@ -447,16 +445,6 @@ func (s *Store) List(ctx context.Context, actor string, p ListParams) (ListResul
 			b.MinLon, b.MinLat, b.MaxLon, b.MaxLat))
 	}
 
-	countSQL, countArgs, err := db.SQL.Select("count(*)").
-		From("routes r").Join("users u ON u.id = r.owner_id").Where(filter).ToSql()
-	if err != nil {
-		return res, err
-	}
-	if err := s.pool.QueryRow(ctx, countSQL, countArgs...).Scan(&res.Total); err != nil {
-		return res, fmt.Errorf("count routes: %w", err)
-	}
-	res.TotalPages = (res.Total + p.PageSize - 1) / p.PageSize
-
 	col, ok := sortColumns[p.Sort]
 	if !ok {
 		col = sortColumns[SortCreatedAt]
@@ -465,28 +453,10 @@ func (s *Store) List(ctx context.Context, actor string, p ListParams) (ListResul
 	if p.Desc {
 		dir = " DESC"
 	}
-	listSQL, listArgs, err := selectRoutes(actor).
-		Where(filter).
-		OrderBy(col+dir, "r.id"+dir). // id is a tie-breaker so pages are stable
-		Limit(uint64(p.PageSize)).
-		Offset(uint64((p.Page - 1) * p.PageSize)).
-		ToSql()
-	if err != nil {
-		return res, err
-	}
-	rows, err := s.pool.Query(ctx, listSQL, listArgs...)
-	if err != nil {
-		return res, fmt.Errorf("list routes: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		r, err := scanRoute(rows)
-		if err != nil {
-			return res, err
-		}
-		res.Items = append(res.Items, r)
-	}
-	return res, rows.Err()
+	return db.ListPage(ctx, s.pool,
+		db.SQL.Select("count(*)").From("routes r").Join("users u ON u.id = r.owner_id").Where(filter),
+		selectRoutes(actor).Where(filter).OrderBy(col+dir, "r.id"+dir), // id is a tie-breaker so pages are stable
+		page, scanRoute)
 }
 
 const geoJSONExpr = `CASE WHEN has_elevation THEN ST_AsGeoJSON(geom, 7) ELSE ST_AsGeoJSON(ST_Force2D(geom), 7) END`

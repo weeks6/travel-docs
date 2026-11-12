@@ -11,6 +11,7 @@
 package trips
 
 import (
+	"github.com/weeks6/travel-docs/internal/paging"
 	"time"
 
 	"github.com/weeks6/travel-docs/apperr"
@@ -112,13 +113,7 @@ type Input struct {
 }
 
 // ListResult is one page of trips.
-type ListResult struct {
-	Items      []Trip `json:"items"`
-	Page       int    `json:"page"`
-	PageSize   int    `json:"page_size"`
-	Total      int    `json:"total"`
-	TotalPages int    `json:"total_pages"`
-}
+type ListResult = paging.Page[Trip]
 
 // Real-time events published on the trip topic and sent to WebSocket clients.
 type (

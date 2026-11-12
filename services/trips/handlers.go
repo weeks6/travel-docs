@@ -3,10 +3,10 @@ package trips
 import (
 	"context"
 	"encoding/json"
+	"github.com/weeks6/travel-docs/internal/httpx"
 	"log/slog"
 	"net/http"
 	"time"
-	"uuid"
 
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
@@ -18,8 +18,6 @@ import (
 )
 
 const (
-	defaultPageSize         = 20
-	maxPageSize             = 100
 	defaultHistoryPoints    = 2000
 	maxHistoryPoints        = 10000
 	maxJSONBody             = 64 << 10
@@ -90,17 +88,11 @@ func (h *Handler) list(c *echo.Context) error {
 	default:
 		return apperr.New(apperr.Invalid, "status must be planned, active, ended or all")
 	}
-	page, pageSize := 1, defaultPageSize
-	if err := echo.QueryParamsBinder(c).Int("page", &page).Int("page_size", &pageSize).BindError(); err != nil {
-		return apperr.New(apperr.Invalid, "page and page_size must be integers")
+	page, err := httpx.ParsePage(c.QueryParams())
+	if err != nil {
+		return err
 	}
-	if page < 1 {
-		return apperr.New(apperr.Invalid, "page must be a positive integer")
-	}
-	if pageSize < 1 || pageSize > maxPageSize {
-		return apperr.Newf(apperr.Invalid, "page_size must be between 1 and %d", maxPageSize)
-	}
-	res, err := h.Store.List(c.Request().Context(), actor, status, page, pageSize)
+	res, err := h.Store.List(c.Request().Context(), actor, status, page)
 	if err != nil {
 		return err
 	}
@@ -184,15 +176,15 @@ func (h *Handler) removeParticipant(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	userID, err := uuid.Parse(c.Param("user_id"))
+	userID, err := httpx.PathUUID(c, "user_id", apperr.New(apperr.NotFound, "participant not found"))
 	if err != nil {
-		return apperr.New(apperr.NotFound, "participant not found")
-	}
-	ctx := c.Request().Context()
-	if err := h.Store.RemoveParticipant(ctx, actor, id, userID.String()); err != nil {
 		return err
 	}
-	h.publish(ctx, id, ChangeEvent{Type: "removed", UserID: userID.String()})
+	ctx := c.Request().Context()
+	if err := h.Store.RemoveParticipant(ctx, actor, id, userID); err != nil {
+		return err
+	}
+	h.publish(ctx, id, ChangeEvent{Type: "removed", UserID: userID})
 	h.publish(ctx, id, ChangeEvent{Type: "participants"})
 	return c.NoContent(http.StatusNoContent)
 }
@@ -235,12 +227,12 @@ func (h *Handler) revokeInvitation(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	invID, err := uuid.Parse(c.Param("invitation_id"))
+	invID, err := httpx.PathUUID(c, "invitation_id", errInvitationGone)
 	if err != nil {
-		return errInvitationGone
+		return err
 	}
 	ctx := c.Request().Context()
-	inv, err := h.Store.RevokeInvitation(ctx, actor, id, invID.String())
+	inv, err := h.Store.RevokeInvitation(ctx, actor, id, invID)
 	if err != nil {
 		return err
 	}
@@ -274,12 +266,12 @@ func (h *Handler) respond(c *echo.Context, accept bool) error {
 	if err != nil {
 		return err
 	}
-	invID, err := uuid.Parse(c.Param("id"))
+	invID, err := httpx.PathUUID(c, "id", errInvitationGone)
 	if err != nil {
-		return errInvitationGone
+		return err
 	}
 	ctx := c.Request().Context()
-	inv, err := h.Store.RespondInvitation(ctx, actor, invID.String(), accept)
+	inv, err := h.Store.RespondInvitation(ctx, actor, invID, accept)
 	if err != nil {
 		return err
 	}
@@ -330,12 +322,8 @@ func (h *Handler) history(c *echo.Context) error {
 		return err
 	}
 	p := HistoryParams{MaxPoints: defaultHistoryPoints}
-	if v := c.QueryParam("user_id"); v != "" {
-		u, err := uuid.Parse(v)
-		if err != nil {
-			return apperr.New(apperr.Invalid, "user_id must be a UUID")
-		}
-		p.UserID = u.String()
+	if p.UserID, err = httpx.QueryUUID(c.QueryParams(), "user_id"); err != nil {
+		return err
 	}
 	for _, f := range []struct {
 		key string
@@ -379,14 +367,7 @@ func (h *Handler) notifyUser(ctx context.Context, userID string, inv Invitation)
 }
 
 func actorAndTrip(c *echo.Context) (actor, id string, err error) {
-	if actor, err = auth.RequireUser(c.Request().Context()); err != nil {
-		return
-	}
-	parsed, perr := uuid.Parse(c.Param("id"))
-	if perr != nil {
-		return "", "", ErrNotFound
-	}
-	return actor, parsed.String(), nil
+	return httpx.ActorAndID(c, ErrNotFound)
 }
 
 // Janitor applies the location retention policy and expires stale

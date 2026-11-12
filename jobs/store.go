@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/weeks6/travel-docs/internal/paging"
 	"time"
 	"uuid"
 
@@ -150,8 +151,7 @@ func (s *Store) Get(ctx context.Context, owner, id string) (Job, error) {
 
 // List returns the owner's jobs, newest first. filter is "active",
 // "finished" or "" (all).
-func (s *Store) List(ctx context.Context, owner, filter string, page, pageSize int) (ListResult, error) {
-	res := ListResult{Items: []Job{}, Page: page, PageSize: pageSize}
+func (s *Store) List(ctx context.Context, owner, filter string, page paging.Params) (ListResult, error) {
 	where := sq.And{sq.Eq{"owner_id": owner}}
 	switch filter {
 	case "active":
@@ -159,33 +159,10 @@ func (s *Store) List(ctx context.Context, owner, filter string, page, pageSize i
 	case "finished":
 		where = append(where, sq.Eq{"status": []string{StatusSucceeded, StatusFailed, StatusCanceled}})
 	}
-	countSQL, countArgs, err := db.SQL.Select("count(*)").From("import_jobs").Where(where).ToSql()
-	if err != nil {
-		return res, err
-	}
-	if err := s.pool.QueryRow(ctx, countSQL, countArgs...).Scan(&res.Total); err != nil {
-		return res, err
-	}
-	res.TotalPages = (res.Total + pageSize - 1) / pageSize
-	listSQL, listArgs, err := db.SQL.Select(jobColumns).From("import_jobs").Where(where).
-		OrderBy("created_at DESC", "id DESC").
-		Limit(uint64(pageSize)).Offset(uint64((page - 1) * pageSize)).ToSql()
-	if err != nil {
-		return res, err
-	}
-	rows, err := s.pool.Query(ctx, listSQL, listArgs...)
-	if err != nil {
-		return res, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		j, err := scanJob(rows)
-		if err != nil {
-			return res, err
-		}
-		res.Items = append(res.Items, j)
-	}
-	return res, rows.Err()
+	return db.ListPage(ctx, s.pool,
+		db.SQL.Select("count(*)").From("import_jobs").Where(where),
+		db.SQL.Select(jobColumns).From("import_jobs").Where(where).OrderBy("created_at DESC", "id DESC"),
+		page, func(r pgx.Row) (Job, error) { return scanJob(r) })
 }
 
 // Cancel cancels a queued job right away, or asks the worker running it to

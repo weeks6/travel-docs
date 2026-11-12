@@ -42,13 +42,8 @@ type Share struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
-type Querier interface {
-	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-}
-
 // List returns all shares of a resource.
-func List(ctx context.Context, q Querier, spec Spec, resourceID string) ([]Share, error) {
+func List(ctx context.Context, q db.Querier, spec Spec, resourceID string) ([]Share, error) {
 	query, args, err := db.SQL.
 		Select("u.id::text", "u.email", "u.display_name", "s.role", "s.created_at").
 		From(spec.Table + " s").

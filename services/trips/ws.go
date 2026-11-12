@@ -8,11 +8,11 @@ import (
 	"net/http"
 	"sync"
 	"time"
-	"uuid"
 
 	"github.com/coder/websocket"
 	"github.com/labstack/echo/v5"
 	"github.com/weeks6/travel-docs/apperr"
+	"github.com/weeks6/travel-docs/internal/httpx"
 	"github.com/weeks6/travel-docs/metrics"
 	"github.com/weeks6/travel-docs/pubsub"
 	"github.com/weeks6/travel-docs/ratelimit"
@@ -123,11 +123,10 @@ type readyMessage struct {
 //	client → {"type":"ping"}                                     server → {"type":"pong"}
 //	server → location, presence, trip, participants, removed, deleted and error events
 func (h *Hub) serve(c *echo.Context) error {
-	id, err := uuid.Parse(c.Param("id"))
+	tripID, err := httpx.PathUUID(c, "id", ErrNotFound)
 	if err != nil {
-		return ErrNotFound
+		return err
 	}
-	tripID := id.String()
 	metrics.MarkStreaming(c)
 
 	select {

@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"github.com/weeks6/travel-docs/db"
 	"net/http"
 	"strings"
 	"time"
@@ -461,11 +462,7 @@ func (s *Service) deleteMe(c *echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
-type querier interface {
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-}
-
-func (s *Service) loadUser(ctx context.Context, q querier, userID string, lock ...string) (User, string, error) {
+func (s *Service) loadUser(ctx context.Context, q db.Querier, userID string, lock ...string) (User, string, error) {
 	var u User
 	var hash string
 	sql := `SELECT id::text, email, display_name, created_at, password_hash FROM users WHERE id = $1`

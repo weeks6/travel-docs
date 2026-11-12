@@ -11,6 +11,7 @@ package jobs
 
 import (
 	"encoding/json"
+	"github.com/weeks6/travel-docs/internal/paging"
 	"time"
 
 	"github.com/weeks6/travel-docs/apperr"
@@ -74,13 +75,7 @@ func (j Job) Finished() bool {
 }
 
 // ListResult is one page of jobs.
-type ListResult struct {
-	Items      []Job `json:"items"`
-	Page       int   `json:"page"`
-	PageSize   int   `json:"page_size"`
-	Total      int   `json:"total"`
-	TotalPages int   `json:"total_pages"`
-}
+type ListResult = paging.Page[Job]
 
 // Event is published on the owner's user topic whenever a job changes.
 type Event struct {

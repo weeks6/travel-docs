@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/weeks6/travel-docs/internal/httpx"
 	"io"
 	"log/slog"
 	"net/http"
@@ -29,8 +30,6 @@ const (
 	// multipartOverhead leaves room for the other form fields.
 	multipartOverhead   = 1 << 20
 	maxIdempotencyKey   = 255
-	defaultPageSize     = 20
-	maxPageSize         = 100
 	uploadSlotWait      = 30 * time.Second
 	DefaultUploadSlots  = 4
 	idempotentReplayHdr = "Idempotent-Replayed"
@@ -110,7 +109,7 @@ func (h *Handler) create(c *echo.Context) error {
 		if r.MyRole == routes.RoleViewer {
 			return apperr.New(apperr.Forbidden, "you can view this route but not edit it")
 		}
-		if n.IfVersion, err = routes.ParseIfMatch(c.Request().Header.Get("If-Match")); err != nil {
+		if n.IfVersion, err = httpx.IfMatchVersion(c.Request().Header.Get("If-Match")); err != nil {
 			return err
 		}
 		if n.IfVersion != 0 && n.IfVersion != r.Version {
@@ -221,17 +220,11 @@ func (h *Handler) list(c *echo.Context) error {
 	default:
 		return apperr.New(apperr.Invalid, "status must be active, finished or all")
 	}
-	page, pageSize := 1, defaultPageSize
-	if err := echo.QueryParamsBinder(c).Int("page", &page).Int("page_size", &pageSize).BindError(); err != nil {
-		return apperr.New(apperr.Invalid, "page and page_size must be integers")
+	page, err := httpx.ParsePage(c.QueryParams())
+	if err != nil {
+		return err
 	}
-	if page < 1 {
-		return apperr.New(apperr.Invalid, "page must be a positive integer")
-	}
-	if pageSize < 1 || pageSize > maxPageSize {
-		return apperr.Newf(apperr.Invalid, "page_size must be between 1 and %d", maxPageSize)
-	}
-	res, err := h.Store.List(c.Request().Context(), actor, status, page, pageSize)
+	res, err := h.Store.List(c.Request().Context(), actor, status, page)
 	if err != nil {
 		return err
 	}
@@ -295,12 +288,5 @@ func (h *Handler) delete(c *echo.Context) error {
 }
 
 func (h *Handler) request(c *echo.Context) (actor, id string, err error) {
-	if actor, err = auth.RequireUser(c.Request().Context()); err != nil {
-		return
-	}
-	parsed, perr := uuid.Parse(c.Param("id"))
-	if perr != nil {
-		return "", "", ErrNotFound
-	}
-	return actor, parsed.String(), nil
+	return httpx.ActorAndID(c, ErrNotFound)
 }

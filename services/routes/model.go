@@ -2,6 +2,7 @@ package routes
 
 import (
 	"encoding/json"
+	"github.com/weeks6/travel-docs/internal/paging"
 	"time"
 
 	"github.com/weeks6/travel-docs/apperr"
@@ -137,10 +138,4 @@ type ListParams struct {
 }
 
 // ListResult is one page of routes.
-type ListResult struct {
-	Items      []Route `json:"items"`
-	Page       int     `json:"page"`
-	PageSize   int     `json:"page_size"`
-	Total      int     `json:"total"`
-	TotalPages int     `json:"total_pages"`
-}
+type ListResult = paging.Page[Route]

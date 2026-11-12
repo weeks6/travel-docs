@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/weeks6/travel-docs/internal/paging"
 	"math"
 	"strings"
 	"time"
@@ -53,11 +54,7 @@ func scanTrip(row pgx.Row) (Trip, error) {
 	return t, err
 }
 
-type querier interface {
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-}
-
-func (s *Store) get(ctx context.Context, q querier, actor, id string) (Trip, error) {
+func (s *Store) get(ctx context.Context, q db.Querier, actor, id string) (Trip, error) {
 	query, args, err := selectTrips(actor).Where(sq.Eq{"t.id": id}).ToSql()
 	if err != nil {
 		return Trip{}, err
@@ -158,42 +155,18 @@ func (s *Store) Create(ctx context.Context, actor string, in Input) (Trip, error
 
 // List returns trips the actor participates in, newest first. status
 // filters by planned, active or ended ("" = all).
-func (s *Store) List(ctx context.Context, actor, status string, page, pageSize int) (ListResult, error) {
-	res := ListResult{Items: []Trip{}, Page: page, PageSize: pageSize}
+func (s *Store) List(ctx context.Context, actor, status string, page paging.Params) (ListResult, error) {
 	where := sq.And{}
 	if status != "" {
 		where = append(where, sq.Eq{"t.status": status})
 	}
-	countSQL, countArgs, err := db.SQL.Select("count(*)").From("trips t").
-		Join("trip_participants p ON p.trip_id = t.id AND p.user_id = ?", actor).
-		Where(where).ToSql()
-	if err != nil {
-		return res, err
-	}
-	if err := s.pool.QueryRow(ctx, countSQL, countArgs...).Scan(&res.Total); err != nil {
-		return res, err
-	}
-	res.TotalPages = (res.Total + pageSize - 1) / pageSize
 	// Active trips first, then planned, then ended; newest first within each.
-	listSQL, listArgs, err := selectTrips(actor).Where(where).
-		OrderBy("CASE t.status WHEN 'active' THEN 0 WHEN 'planned' THEN 1 ELSE 2 END", "t.created_at DESC", "t.id DESC").
-		Limit(uint64(pageSize)).Offset(uint64((page - 1) * pageSize)).ToSql()
-	if err != nil {
-		return res, err
-	}
-	rows, err := s.pool.Query(ctx, listSQL, listArgs...)
-	if err != nil {
-		return res, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		t, err := scanTrip(rows)
-		if err != nil {
-			return res, err
-		}
-		res.Items = append(res.Items, t)
-	}
-	return res, rows.Err()
+	return db.ListPage(ctx, s.pool,
+		db.SQL.Select("count(*)").From("trips t").
+			Join("trip_participants p ON p.trip_id = t.id AND p.user_id = ?", actor).Where(where),
+		selectTrips(actor).Where(where).
+			OrderBy("CASE t.status WHEN 'active' THEN 0 WHEN 'planned' THEN 1 ELSE 2 END", "t.created_at DESC", "t.id DESC"),
+		page, scanTrip)
 }
 
 type lockedTrip struct {
@@ -437,7 +410,7 @@ func scanInvitation(row pgx.Row) (Invitation, error) {
 	return i, err
 }
 
-func (s *Store) invitation(ctx context.Context, q querier, id string) (Invitation, error) {
+func (s *Store) invitation(ctx context.Context, q db.Querier, id string) (Invitation, error) {
 	return scanInvitation(q.QueryRow(ctx, invitationSelect+` WHERE i.id = $1`, id))
 }
 

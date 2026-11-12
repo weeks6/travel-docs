@@ -4,28 +4,25 @@ package routes
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"mime"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
-	"uuid"
 
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
 	"github.com/weeks6/travel-docs/apperr"
 	"github.com/weeks6/travel-docs/gpx"
+	"github.com/weeks6/travel-docs/internal/httpx"
 	"github.com/weeks6/travel-docs/services/auth"
 )
 
 const (
 	// MaxUploadSize limits GPX uploads and GeoJSON edits, in bytes.
-	MaxUploadSize   = 20 << 20
-	maxJSONSize     = 64 << 10
-	DefaultPageSize = 20
-	MaxPageSize     = 100
+	MaxUploadSize = 20 << 20
+	maxJSONSize   = 64 << 10
 )
 
 // Handler serves the /routes API.
@@ -130,30 +127,16 @@ func (h *Handler) list(c *echo.Context) error {
 // The default scope is "mine" for logged-in users and "public" otherwise,
 // or "all" when listing a collection.
 func ParseListParams(q url.Values, loggedIn bool) (ListParams, error) {
-	p := ListParams{Page: 1, PageSize: DefaultPageSize, Sort: SortCreatedAt, Desc: true}
+	p := ListParams{Sort: SortCreatedAt, Desc: true}
 	bad := func(msg string) (ListParams, error) { return p, apperr.New(apperr.Invalid, msg) }
 
-	if v := q.Get("page"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 {
-			return bad("page must be a positive integer")
-		}
-		p.Page = n
+	page, err := httpx.ParsePage(q)
+	if err != nil {
+		return p, err
 	}
-	if v := q.Get("page_size"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 || n > MaxPageSize {
-			return bad(fmt.Sprintf("page_size must be between 1 and %d", MaxPageSize))
-		}
-		p.PageSize = n
-	}
-
-	if v := q.Get("collection_id"); v != "" {
-		id, err := uuid.Parse(v)
-		if err != nil {
-			return bad("collection_id must be a UUID")
-		}
-		p.CollectionID = id.String()
+	p.Page, p.PageSize = page.Page, page.PageSize
+	if p.CollectionID, err = httpx.QueryUUID(q, "collection_id"); err != nil {
+		return p, err
 	}
 	switch s := Scope(q.Get("scope")); s {
 	case "":
@@ -316,11 +299,7 @@ func (h *Handler) replaceGeometry(c *echo.Context) error {
 }
 
 func (h *Handler) delete(c *echo.Context) error {
-	actor, err := auth.RequireUser(c.Request().Context())
-	if err != nil {
-		return err
-	}
-	id, err := routeID(c)
+	actor, id, err := httpx.ActorAndID(c, ErrNotFound)
 	if err != nil {
 		return err
 	}
@@ -408,11 +387,7 @@ func (h *Handler) restore(c *echo.Context) error {
 }
 
 func (h *Handler) shares(c *echo.Context) error {
-	actor, err := auth.RequireUser(c.Request().Context())
-	if err != nil {
-		return err
-	}
-	id, err := routeID(c)
+	actor, id, err := httpx.ActorAndID(c, ErrNotFound)
 	if err != nil {
 		return err
 	}
@@ -425,11 +400,7 @@ func (h *Handler) shares(c *echo.Context) error {
 
 // putShare takes {"email": "...", "role": "viewer"|"editor"}.
 func (h *Handler) putShare(c *echo.Context) error {
-	actor, err := auth.RequireUser(c.Request().Context())
-	if err != nil {
-		return err
-	}
-	id, err := routeID(c)
+	actor, id, err := httpx.ActorAndID(c, ErrNotFound)
 	if err != nil {
 		return err
 	}
@@ -448,58 +419,30 @@ func (h *Handler) putShare(c *echo.Context) error {
 }
 
 func (h *Handler) deleteShare(c *echo.Context) error {
-	actor, err := auth.RequireUser(c.Request().Context())
+	actor, id, err := httpx.ActorAndID(c, ErrNotFound)
 	if err != nil {
 		return err
 	}
-	id, err := routeID(c)
+	userID, err := httpx.PathUUID(c, "user_id", apperr.New(apperr.NotFound, "share not found"))
 	if err != nil {
 		return err
 	}
-	userID, err := uuid.Parse(c.Param("user_id"))
-	if err != nil {
-		return apperr.New(apperr.NotFound, "share not found")
-	}
-	if err := h.Store.DeleteShare(c.Request().Context(), actor, id, userID.String()); err != nil {
+	if err := h.Store.DeleteShare(c.Request().Context(), actor, id, userID); err != nil {
 		return err
 	}
 	return c.NoContent(http.StatusNoContent)
 }
 
-// routeID validates the :id path parameter. Malformed IDs are reported as
-// not found so they never reach the database.
-func routeID(c *echo.Context) (string, error) {
-	id, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		return "", ErrNotFound
-	}
-	return id.String(), nil
-}
+// routeID validates the :id path parameter.
+func routeID(c *echo.Context) (string, error) { return httpx.PathUUID(c, "id", ErrNotFound) }
 
 // editRequest extracts what every editing endpoint needs.
 func editRequest(c *echo.Context) (actor, id string, ifVersion int, err error) {
-	if actor, err = auth.RequireUser(c.Request().Context()); err != nil {
+	if actor, id, err = httpx.ActorAndID(c, ErrNotFound); err != nil {
 		return
 	}
-	if id, err = routeID(c); err != nil {
-		return
-	}
-	ifVersion, err = ParseIfMatch(c.Request().Header.Get("If-Match"))
+	ifVersion, err = httpx.IfMatchVersion(c.Request().Header.Get("If-Match"))
 	return
-}
-
-// ParseIfMatch returns the version from an If-Match header such as "3", or
-// 0 when the header is absent.
-func ParseIfMatch(v string) (int, error) {
-	v = strings.TrimSpace(v)
-	if v == "" || v == "*" {
-		return 0, nil
-	}
-	n, err := strconv.Atoi(strings.Trim(strings.TrimPrefix(v, "W/"), `"`))
-	if err != nil || n < 1 {
-		return 0, apperr.New(apperr.Invalid, `If-Match must be a version ETag such as "3"`)
-	}
-	return n, nil
 }
 
 func versionParam(c *echo.Context) (int, error) {
@@ -511,7 +454,7 @@ func versionParam(c *echo.Context) (int, error) {
 }
 
 func writeRoute(c *echo.Context, status int, route Route) error {
-	c.Response().Header().Set("ETag", strconv.Quote(strconv.Itoa(route.Version)))
+	c.Response().Header().Set("ETag", httpx.VersionETag(route.Version))
 	return c.JSON(status, route)
 }
 

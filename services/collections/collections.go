@@ -14,6 +14,8 @@ package collections
 import (
 	"context"
 	"errors"
+	"github.com/weeks6/travel-docs/internal/httpx"
+	"github.com/weeks6/travel-docs/internal/paging"
 	"net/http"
 	"strings"
 	"time"
@@ -85,11 +87,7 @@ func scanCollection(row pgx.Row) (Collection, error) {
 	return c, err
 }
 
-type querier interface {
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-}
-
-func (s *Store) get(ctx context.Context, q querier, actor, id string) (Collection, error) {
+func (s *Store) get(ctx context.Context, q db.Querier, actor, id string) (Collection, error) {
 	query, args, err := selectCollections(actor).Where(sq.Eq{"c.id": id}).ToSql()
 	if err != nil {
 		return Collection{}, err
@@ -310,18 +308,12 @@ func (s *Store) RemoveRoute(ctx context.Context, actor, id, routeID string) erro
 }
 
 // ListResult is one page of collections.
-type ListResult struct {
-	Items      []Collection `json:"items"`
-	Page       int          `json:"page"`
-	PageSize   int          `json:"page_size"`
-	Total      int          `json:"total"`
-	TotalPages int          `json:"total_pages"`
-}
+type ListResult = paging.Page[Collection]
 
 // List supports scopes mine, shared, editable (mine + shared with me as
 // editor), public and all; optionally only collections containing routeID.
-func (s *Store) List(ctx context.Context, actor, scope, routeID string, page, pageSize int) (ListResult, error) {
-	res := ListResult{Page: page, PageSize: pageSize, Items: []Collection{}}
+func (s *Store) List(ctx context.Context, actor, scope, routeID string, page paging.Params) (ListResult, error) {
+	res := paging.Empty[Collection](page)
 	if actor == "" && scope != "public" && scope != "all" {
 		return res, apperr.New(apperr.Unauthorized, "log in to list your own or shared collections")
 	}
@@ -344,37 +336,10 @@ func (s *Store) List(ctx context.Context, actor, scope, routeID string, page, pa
 			"EXISTS (SELECT 1 FROM collection_routes cr WHERE cr.collection_id = c.id AND cr.route_id = ?)", routeID))
 	}
 
-	countSQL, countArgs, err := db.SQL.Select("count(*)").From("collections c").Where(filter).ToSql()
-	if err != nil {
-		return res, err
-	}
-	if err := s.pool.QueryRow(ctx, countSQL, countArgs...).Scan(&res.Total); err != nil {
-		return res, err
-	}
-	res.TotalPages = (res.Total + pageSize - 1) / pageSize
-
-	listSQL, listArgs, err := selectCollections(actor).
-		Where(filter).
-		OrderBy("c.updated_at DESC", "c.id DESC").
-		Limit(uint64(pageSize)).
-		Offset(uint64((page - 1) * pageSize)).
-		ToSql()
-	if err != nil {
-		return res, err
-	}
-	rows, err := s.pool.Query(ctx, listSQL, listArgs...)
-	if err != nil {
-		return res, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		c, err := scanCollection(rows)
-		if err != nil {
-			return res, err
-		}
-		res.Items = append(res.Items, c)
-	}
-	return res, rows.Err()
+	return db.ListPage(ctx, s.pool,
+		db.SQL.Select("count(*)").From("collections c").Where(filter),
+		selectCollections(actor).Where(filter).OrderBy("c.updated_at DESC", "c.id DESC"),
+		page, scanCollection)
 }
 
 func (s *Store) Shares(ctx context.Context, actor, id string) ([]sharing.Share, error) {
@@ -453,16 +418,16 @@ func (h *Handler) create(c *echo.Context) error {
 // anonymous), ?route_id= (only collections containing it), page, page_size.
 func (h *Handler) list(c *echo.Context) error {
 	actor := auth.UserID(c.Request().Context())
-	scope, routeID := "", ""
-	page, pageSize := 1, 20
-	if err := echo.QueryParamsBinder(c).
-		String("scope", &scope).
-		String("route_id", &routeID).
-		Int("page", &page).
-		Int("page_size", &pageSize).
-		BindError(); err != nil {
-		return apperr.New(apperr.Invalid, "page and page_size must be integers")
+	q := c.QueryParams()
+	page, err := httpx.ParsePage(q)
+	if err != nil {
+		return err
 	}
+	routeID, err := httpx.QueryUUID(q, "route_id")
+	if err != nil {
+		return err
+	}
+	scope := q.Get("scope")
 	switch scope {
 	case "":
 		scope = "mine"
@@ -473,20 +438,7 @@ func (h *Handler) list(c *echo.Context) error {
 	default:
 		return apperr.New(apperr.Invalid, "scope must be one of mine, shared, editable, public, all")
 	}
-	if routeID != "" {
-		id, err := uuid.Parse(routeID)
-		if err != nil {
-			return apperr.New(apperr.Invalid, "route_id must be a UUID")
-		}
-		routeID = id.String()
-	}
-	if page < 1 {
-		return apperr.New(apperr.Invalid, "page must be a positive integer")
-	}
-	if pageSize < 1 || pageSize > 100 {
-		return apperr.New(apperr.Invalid, "page_size must be between 1 and 100")
-	}
-	res, err := h.Store.List(c.Request().Context(), actor, scope, routeID, page, pageSize)
+	res, err := h.Store.List(c.Request().Context(), actor, scope, routeID, page)
 	if err != nil {
 		return err
 	}
@@ -494,7 +446,7 @@ func (h *Handler) list(c *echo.Context) error {
 }
 
 func (h *Handler) get(c *echo.Context) error {
-	id, err := pathID(c, "id", ErrNotFound)
+	id, err := httpx.PathUUID(c, "id", ErrNotFound)
 	if err != nil {
 		return err
 	}
@@ -537,7 +489,7 @@ func (h *Handler) addRoute(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	routeID, err := pathID(c, "route_id", errRouteNotFound)
+	routeID, err := httpx.PathUUID(c, "route_id", errRouteNotFound)
 	if err != nil {
 		return err
 	}
@@ -552,7 +504,7 @@ func (h *Handler) removeRoute(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	routeID, err := pathID(c, "route_id", errRouteNotFound)
+	routeID, err := httpx.PathUUID(c, "route_id", errRouteNotFound)
 	if err != nil {
 		return err
 	}
@@ -598,7 +550,7 @@ func (h *Handler) deleteShare(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	userID, err := pathID(c, "user_id", apperr.New(apperr.NotFound, "share not found"))
+	userID, err := httpx.PathUUID(c, "user_id", apperr.New(apperr.NotFound, "share not found"))
 	if err != nil {
 		return err
 	}
@@ -610,20 +562,6 @@ func (h *Handler) deleteShare(c *echo.Context) error {
 
 var errRouteNotFound = apperr.New(apperr.NotFound, "route not found")
 
-// pathID validates a UUID path parameter; malformed IDs are "not found".
-func pathID(c *echo.Context, name string, notFound error) (string, error) {
-	id, err := uuid.Parse(c.Param(name))
-	if err != nil {
-		return "", notFound
-	}
-	return id.String(), nil
-}
-
 func actorAndID(c *echo.Context) (string, string, error) {
-	actor, err := auth.RequireUser(c.Request().Context())
-	if err != nil {
-		return "", "", err
-	}
-	id, err := pathID(c, "id", ErrNotFound)
-	return actor, id, err
+	return httpx.ActorAndID(c, ErrNotFound)
 }

@@ -14,6 +14,7 @@ import (
 	"crypto/ecdsa"
 	"errors"
 	"fmt"
+	"github.com/weeks6/travel-docs/internal/textutil"
 	"strings"
 	"time"
 	"uuid"
@@ -151,7 +152,7 @@ func (s *Service) createRefreshToken(ctx context.Context, tx pgx.Tx, userID, fam
 	_, err := tx.Exec(ctx, `
 		INSERT INTO refresh_tokens (id, user_id, family_id, token_hash, user_agent, expires_at)
 		VALUES ($1, $2, $3, $4, $5, $6)`,
-		uuid.NewV7().String(), userID, familyID, hash, truncate(userAgent, 300), s.now().Add(s.cfg.RefreshTTL))
+		uuid.NewV7().String(), userID, familyID, hash, textutil.Truncate(userAgent, 300), s.now().Add(s.cfg.RefreshTTL))
 	if err != nil {
 		return "", fmt.Errorf("store refresh token: %w", err)
 	}
@@ -168,12 +169,4 @@ func revokeAllSessions(ctx context.Context, tx pgx.Tx, userID string) error {
 	_, err := tx.Exec(ctx,
 		`UPDATE users SET tokens_valid_after = date_trunc('second', now()) WHERE id = $1`, userID)
 	return err
-}
-
-func truncate(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[:n])
 }

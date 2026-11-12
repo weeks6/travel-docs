@@ -169,8 +169,10 @@ func TestContractResponseShapes(t *testing.T) {
 	s.resp("PATCH /auth/me", carol.do("PATCH", "/auth/me", map[string]string{"display_name": "Carol"}))
 	s.resp("PUT /auth/me/password", carol.do("PUT", "/auth/me/password", map[string]string{
 		"current_password": testPassword, "new_password": testPassword + "!"}))
+	carol.token = "" // revoked by the password change / logout
 	carol.login("carol@example.com", testPassword+"!")
 	s.resp("POST /auth/logout", carol.do("POST", "/auth/logout", map[string]string{"refresh_token": carol.refresh}))
+	carol.token = "" // revoked by the password change / logout
 	carol.login("carol@example.com", testPassword+"!")
 	s.resp("POST /auth/logout-all", carol.do("POST", "/auth/logout-all", nil))
 	s.resp("DELETE /auth/me", carol.do("DELETE", "/auth/me", map[string]string{"password": testPassword + "!"}))

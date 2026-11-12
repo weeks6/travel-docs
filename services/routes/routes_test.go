@@ -130,17 +130,3 @@ func TestBuildContent(t *testing.T) {
 		t.Errorf("name not truncated: %d runes", len([]rune(c.Name)))
 	}
 }
-
-func TestParseIfMatch(t *testing.T) {
-	for header, want := range map[string]int{"": 0, "*": 0, `"3"`: 3, `W/"12"`: 12, "7": 7} {
-		got, err := ParseIfMatch(header)
-		if err != nil || got != want {
-			t.Errorf("If-Match %q = %d, %v; want %d", header, got, err, want)
-		}
-	}
-	for _, bad := range []string{`"abc"`, `"0"`, `"-1"`} {
-		if _, err := ParseIfMatch(bad); apperr.KindOf(err) != apperr.Invalid {
-			t.Errorf("If-Match %q: err = %v, want Invalid", bad, err)
-		}
-	}
-}
