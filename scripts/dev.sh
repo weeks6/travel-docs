@@ -144,7 +144,7 @@ seed() {
   total=$(curl -sS -H "Authorization: Bearer $token" "$BASE/routes?scope=mine&page_size=1" | json_field total)
   if [[ "$total" == 0 ]]; then
     code=$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $token" \
-      -F file=@gpx/testdata/track.gpx -F name="Sample loop" -F visibility=public "$BASE/routes")
+      -F file=@internal/gpx/testdata/track.gpx -F name="Sample loop" -F visibility=public "$BASE/routes")
     [[ "$code" == 201 ]] || { echo "  sample route upload failed (HTTP $code)" >&2; return 1; }
     log "Demo data ready: $DEMO_EMAIL with a public sample route"
   else

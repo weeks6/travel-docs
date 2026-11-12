@@ -14,16 +14,16 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/weeks6/travel-docs/db"
-	"github.com/weeks6/travel-docs/jobs"
-	"github.com/weeks6/travel-docs/logging"
-	"github.com/weeks6/travel-docs/metrics"
-	"github.com/weeks6/travel-docs/pubsub"
-	"github.com/weeks6/travel-docs/server"
-	"github.com/weeks6/travel-docs/services/auth"
-	"github.com/weeks6/travel-docs/services/routes"
-	"github.com/weeks6/travel-docs/services/trips"
-	"github.com/weeks6/travel-docs/tracing"
+	"github.com/weeks6/travel-docs/internal/auth"
+	"github.com/weeks6/travel-docs/internal/db"
+	"github.com/weeks6/travel-docs/internal/logging"
+	"github.com/weeks6/travel-docs/internal/metrics"
+	"github.com/weeks6/travel-docs/internal/pubsub"
+	"github.com/weeks6/travel-docs/internal/routes"
+	"github.com/weeks6/travel-docs/internal/routes/imports"
+	"github.com/weeks6/travel-docs/internal/server"
+	"github.com/weeks6/travel-docs/internal/tracing"
+	"github.com/weeks6/travel-docs/internal/trips"
 )
 
 const (
@@ -116,7 +116,7 @@ func run(log *slog.Logger) error {
 
 	// Import workers start stopping as soon as the signal arrives: they
 	// finish or hand back their jobs while HTTP drains.
-	runner := jobs.NewRunner(pool, routes.NewStore(pool), broker, log, cfg.jobs)
+	runner := imports.NewRunner(pool, routes.NewStore(pool), broker, log, cfg.jobs)
 	workersDone := make(chan struct{})
 	go func() { defer close(workersDone); runner.Run(ctx) }()
 
@@ -211,7 +211,7 @@ type config struct {
 	natsURL         string
 	uploadSlots     int
 	shutdownTimeout time.Duration
-	jobs            jobs.Config
+	jobs            imports.Config
 	rateLimits      server.RateLimits
 }
 
@@ -253,9 +253,9 @@ func loadConfig() (config, error) {
 	}
 
 	p := envParser{}
-	c.uploadSlots = p.int("UPLOAD_SLOTS", jobs.DefaultUploadSlots)
+	c.uploadSlots = p.int("UPLOAD_SLOTS", imports.DefaultUploadSlots)
 	c.shutdownTimeout = p.duration("SHUTDOWN_TIMEOUT", 25*time.Second)
-	c.jobs = jobs.Config{
+	c.jobs = imports.Config{
 		Workers:       p.int("IMPORT_WORKERS", 2),
 		ShutdownGrace: p.duration("IMPORT_SHUTDOWN_GRACE", 15*time.Second),
 		Retention:     p.duration("IMPORT_JOB_RETENTION", 7*24*time.Hour),

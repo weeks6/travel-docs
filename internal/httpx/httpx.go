@@ -9,9 +9,9 @@ import (
 	"uuid"
 
 	"github.com/labstack/echo/v5"
-	"github.com/weeks6/travel-docs/apperr"
+	"github.com/weeks6/travel-docs/internal/apperr"
+	"github.com/weeks6/travel-docs/internal/auth"
 	"github.com/weeks6/travel-docs/internal/paging"
-	"github.com/weeks6/travel-docs/services/auth"
 )
 
 // ParsePage reads ?page and ?page_size, defaulting to the first page of

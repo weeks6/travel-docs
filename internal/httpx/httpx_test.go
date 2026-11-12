@@ -4,7 +4,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/weeks6/travel-docs/apperr"
+	"github.com/weeks6/travel-docs/internal/apperr"
 	"github.com/weeks6/travel-docs/internal/paging"
 )
 

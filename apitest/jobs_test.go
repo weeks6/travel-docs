@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weeks6/travel-docs/jobs"
-	"github.com/weeks6/travel-docs/services/routes"
+	"github.com/weeks6/travel-docs/internal/routes"
+	"github.com/weeks6/travel-docs/internal/routes/imports"
 )
 
 type jobJSON struct {
@@ -153,7 +153,7 @@ func TestImportJobLifecycle(t *testing.T) {
 		expect(http.StatusAccepted)
 	resp.decode(&j)
 	if j.Status != "queued" || j.Kind != "create" || j.Filename != "ridge.gpx" || j.Visibility != "public" ||
-		j.SizeBytes != int64(len(sampleGPX)) || j.MaxAttempts != jobs.DefaultMaxAttempts {
+		j.SizeBytes != int64(len(sampleGPX)) || j.MaxAttempts != imports.DefaultMaxAttempts {
 		t.Errorf("queued job = %+v", j)
 	}
 	if resp.Header.Get("Location") != "/import-jobs/"+j.ID {
@@ -329,8 +329,8 @@ func TestImportNewVersion(t *testing.T) {
 func (e *env) startWorkers(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	r := jobs.NewRunner(e.pool, routes.NewStore(e.pool), e.broker, discardLog(),
-		jobs.Config{Workers: 2, PollInterval: 50 * time.Millisecond, Lease: 2 * time.Second})
+	r := imports.NewRunner(e.pool, routes.NewStore(e.pool), e.broker, discardLog(),
+		imports.Config{Workers: 2, PollInterval: 50 * time.Millisecond, Lease: 2 * time.Second})
 	go func() { defer close(done); r.Run(ctx) }()
 	t.Cleanup(func() { cancel(); <-done })
 }
@@ -352,8 +352,8 @@ func TestImportCancelRetryAndLimits(t *testing.T) {
 		t.Fatalf("retried job = %+v", j)
 	}
 
-	// At most jobs.MaxActivePerUser queued or running jobs per user.
-	for i := 1; i < jobs.MaxActivePerUser; i++ {
+	// At most imports.MaxActivePerUser queued or running jobs per user.
+	for i := 1; i < imports.MaxActivePerUser; i++ {
 		alice.enqueue(fmt.Sprintf("r%d.gpx", i), sampleGPX, nil).expect(http.StatusAccepted)
 	}
 	resp := alice.enqueue("one-too-many.gpx", sampleGPX, nil).expect(http.StatusTooManyRequests)
@@ -383,8 +383,8 @@ func TestImportCancelRetryAndLimits(t *testing.T) {
 	}
 	var routes listJSON
 	alice.do("GET", "/routes?scope=mine", nil).expect(200).decode(&routes)
-	if routes.Total != jobs.MaxActivePerUser {
-		t.Errorf("imported %d routes, want %d", routes.Total, jobs.MaxActivePerUser)
+	if routes.Total != imports.MaxActivePerUser {
+		t.Errorf("imported %d routes, want %d", routes.Total, imports.MaxActivePerUser)
 	}
 }
 
@@ -500,8 +500,8 @@ func TestGracefulWorkerShutdownRequeues(t *testing.T) {
 	stream := alice.openEvents()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	r := jobs.NewRunner(e.pool, routes.NewStore(e.pool), e.broker, discardLog(),
-		jobs.Config{Workers: 1, PollInterval: 20 * time.Millisecond, ShutdownGrace: time.Millisecond})
+	r := imports.NewRunner(e.pool, routes.NewStore(e.pool), e.broker, discardLog(),
+		imports.Config{Workers: 1, PollInterval: 20 * time.Millisecond, ShutdownGrace: time.Millisecond})
 	go func() { defer close(done); r.Run(ctx) }()
 	for stream.nextJob(j.ID).Stage != "parsing" {
 	}
@@ -553,8 +553,8 @@ func TestTransientErrorsAreRetried(t *testing.T) {
 		t.Errorf("job failing once = %+v, want success on the second attempt", j)
 	}
 	j := alice.waitJob(always.ID)
-	if j.Status != "failed" || j.Attempts != jobs.DefaultMaxAttempts || j.Error == nil ||
-		!strings.Contains(*j.Error, fmt.Sprintf("failed after %d attempts", jobs.DefaultMaxAttempts)) {
+	if j.Status != "failed" || j.Attempts != imports.DefaultMaxAttempts || j.Error == nil ||
+		!strings.Contains(*j.Error, fmt.Sprintf("failed after %d attempts", imports.DefaultMaxAttempts)) {
 		t.Errorf("job failing always = %+v", j)
 	}
 	// Internal details stay out of the API.

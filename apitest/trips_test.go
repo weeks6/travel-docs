@@ -10,8 +10,8 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/weeks6/travel-docs/server"
-	"github.com/weeks6/travel-docs/services/trips"
+	"github.com/weeks6/travel-docs/internal/server"
+	"github.com/weeks6/travel-docs/internal/trips"
 )
 
 type tripJSON struct {

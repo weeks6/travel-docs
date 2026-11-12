@@ -29,13 +29,13 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/weeks6/travel-docs/db"
-	"github.com/weeks6/travel-docs/jobs"
-	"github.com/weeks6/travel-docs/pubsub"
-	"github.com/weeks6/travel-docs/pubsub/natstest"
-	"github.com/weeks6/travel-docs/server"
-	"github.com/weeks6/travel-docs/services/auth"
-	"github.com/weeks6/travel-docs/services/routes"
+	"github.com/weeks6/travel-docs/internal/auth"
+	"github.com/weeks6/travel-docs/internal/db"
+	"github.com/weeks6/travel-docs/internal/pubsub"
+	"github.com/weeks6/travel-docs/internal/pubsub/natstest"
+	"github.com/weeks6/travel-docs/internal/routes"
+	"github.com/weeks6/travel-docs/internal/routes/imports"
+	"github.com/weeks6/travel-docs/internal/server"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -107,7 +107,7 @@ func setup(t *testing.T, options ...setupOption) *env {
 	}
 	srv := httptest.NewServer(handler)
 
-	jobCfg := jobs.Config{Workers: 2, PollInterval: 50 * time.Millisecond, Lease: 2 * time.Second,
+	jobCfg := imports.Config{Workers: 2, PollInterval: 50 * time.Millisecond, Lease: 2 * time.Second,
 		RetryBaseDelay: 20 * time.Millisecond, ShutdownGrace: 2 * time.Second}
 	if opts.noWorkers {
 		jobCfg.Workers = 0
@@ -116,7 +116,7 @@ func setup(t *testing.T, options ...setupOption) *env {
 	go func() {
 		defer close(runnerDone)
 		if !opts.noWorkers {
-			jobs.NewRunner(pool, routes.NewStore(pool), broker, log, jobCfg).Run(ctx)
+			imports.NewRunner(pool, routes.NewStore(pool), broker, log, jobCfg).Run(ctx)
 		}
 	}()
 	t.Cleanup(func() {
