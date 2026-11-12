@@ -29,11 +29,12 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/weeks6/travel-docs/internal/app"
 	"github.com/weeks6/travel-docs/internal/auth"
+	"github.com/weeks6/travel-docs/internal/config"
 	"github.com/weeks6/travel-docs/internal/db"
 	"github.com/weeks6/travel-docs/internal/pubsub"
 	"github.com/weeks6/travel-docs/internal/pubsub/natstest"
-	"github.com/weeks6/travel-docs/internal/routes"
 	"github.com/weeks6/travel-docs/internal/routes/imports"
 	"github.com/weeks6/travel-docs/internal/server"
 	"golang.org/x/crypto/bcrypt"
@@ -97,26 +98,22 @@ func setup(t *testing.T, options ...setupOption) *env {
 		t.Fatal(err)
 	}
 
-	handler, err := server.New(server.Config{
-		Pool: pool, Auth: svc, Broker: broker, Log: log,
-		CORSOrigins: []string{testOrigin},
-		RateLimits:  opts.rateLimits,
+	jobCfg := imports.Config{Workers: 2, PollInterval: 50 * time.Millisecond, Lease: 2 * time.Second,
+		RetryBaseDelay: 20 * time.Millisecond, ShutdownGrace: 2 * time.Second}
+	a, err := app.New(app.Deps{Pool: pool, Auth: svc, Broker: broker, Log: log}, config.Config{
+		CORSOrigins: []string{testOrigin}, RateLimits: opts.rateLimits, Jobs: jobCfg,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	handler := a.Handler
 	srv := httptest.NewServer(handler)
 
-	jobCfg := imports.Config{Workers: 2, PollInterval: 50 * time.Millisecond, Lease: 2 * time.Second,
-		RetryBaseDelay: 20 * time.Millisecond, ShutdownGrace: 2 * time.Second}
-	if opts.noWorkers {
-		jobCfg.Workers = 0
-	}
 	runnerDone := make(chan struct{})
 	go func() {
 		defer close(runnerDone)
 		if !opts.noWorkers {
-			imports.NewRunner(pool, routes.NewStore(pool), broker, log, jobCfg).Run(ctx)
+			a.RunWorkers(ctx)
 		}
 	}()
 	t.Cleanup(func() {
