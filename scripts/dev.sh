@@ -87,6 +87,7 @@ if pid=$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null | head -1) && [[ -n 
   die "port $PORT is already used by $(ps -o comm= -p "$pid") (pid $pid). Stop it or run with PORT=<other port>."
 fi
 
+export APP_ENV=dev # use the committed development JWT keys
 export ADDR=":$PORT"
 export CORS_ORIGINS="${CORS_ORIGINS:-$WEB}"
 export LOG_FORMAT="${LOG_FORMAT:-text}"

@@ -41,7 +41,8 @@ The web UI's API address is built into its bundle: set `NEXT_PUBLIC_API_URL` whe
 | `ADDR` | `:8080` | API listen address |
 | `METRICS_ADDR` | `:9090` | Prometheus `/metrics` on a separate port; `off` disables it |
 | `CORS_ORIGINS` | `http://localhost:3000` | Comma-separated browser origins allowed to call the API (and open WebSockets); `*` allows any |
-| `JWT_PRIVATE_KEY_FILE` / `JWT_PUBLIC_KEY_FILE` | `test_key.pem` / `test_key.pub.pem` | ES256, development only |
+| `APP_ENV` | `production` | `dev` allows the committed development JWT keys (`scripts/dev.sh` sets it) |
+| `JWT_PRIVATE_KEY_FILE` / `JWT_PUBLIC_KEY_FILE` | required; with `APP_ENV=dev`: `dev/keys/jwt.pem` / `dev/keys/jwt.pub.pem` | ES256 key pair. Never deploy the development keys: anyone can sign tokens with them |
 | `LOG_FORMAT` / `LOG_LEVEL` | `json` / `info` | `text` is easier to read locally |
 | `PUBSUB` | `nats` | `nats` (works across instances) or `local` (in-process, single instance only) |
 | `NATS_URL` | `nats://localhost:4222` | NATS server(s), comma-separated for a cluster |

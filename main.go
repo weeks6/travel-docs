@@ -26,7 +26,12 @@ import (
 	"github.com/weeks6/travel-docs/tracing"
 )
 
-const defaultDatabaseURL = "postgres://travel:travel@localhost:5432/travel_docs?sslmode=disable"
+const (
+	defaultDatabaseURL = "postgres://travel:travel@localhost:5432/travel_docs?sslmode=disable"
+	// Committed development keys, used only with APP_ENV=dev.
+	devPrivateKeyFile = "dev/keys/jwt.pem"
+	devPublicKeyFile  = "dev/keys/jwt.pub.pem"
+)
 
 func main() {
 	log, err := logging.New(os.Stderr, getenv("LOG_FORMAT", "json"), getenv("LOG_LEVEL", "info"))
@@ -215,10 +220,25 @@ func loadConfig() (config, error) {
 		databaseURL:    getenv("DATABASE_URL", defaultDatabaseURL),
 		addr:           getenv("ADDR", ":8080"),
 		metricsAddr:    getenv("METRICS_ADDR", ":9090"),
-		privateKeyFile: getenv("JWT_PRIVATE_KEY_FILE", "test_key.pem"),
-		publicKeyFile:  getenv("JWT_PUBLIC_KEY_FILE", "test_key.pub.pem"),
+		privateKeyFile: os.Getenv("JWT_PRIVATE_KEY_FILE"),
+		publicKeyFile:  os.Getenv("JWT_PUBLIC_KEY_FILE"),
 		pubsub:         getenv("PUBSUB", "nats"),
 		natsURL:        getenv("NATS_URL", "nats://localhost:4222"),
+	}
+	// The repository's keys are public, so tokens signed with them can be
+	// forged by anyone: use them only when explicitly in development.
+	switch env := getenv("APP_ENV", "production"); env {
+	case "dev":
+		if c.privateKeyFile == "" && c.publicKeyFile == "" {
+			c.privateKeyFile, c.publicKeyFile = devPrivateKeyFile, devPublicKeyFile
+		}
+	case "production":
+	default:
+		return c, fmt.Errorf("APP_ENV must be dev or production, got %q", env)
+	}
+	if c.privateKeyFile == "" || c.publicKeyFile == "" {
+		return c, errors.New("JWT_PRIVATE_KEY_FILE and JWT_PUBLIC_KEY_FILE are required " +
+			"(or set APP_ENV=dev to use the development keys)")
 	}
 	if c.metricsAddr == "off" {
 		c.metricsAddr = ""

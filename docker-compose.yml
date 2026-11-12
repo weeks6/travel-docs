@@ -95,9 +95,9 @@ services:
 # Development keys only. Generate new keys for any real deployment.
 secrets:
   jwt_private_key:
-    file: ./test_key.pem
+    file: ./dev/keys/jwt.pem
   jwt_public_key:
-    file: ./test_key.pub.pem
+    file: ./dev/keys/jwt.pub.pem
 
 volumes:
   pgdata:
