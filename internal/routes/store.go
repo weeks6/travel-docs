@@ -35,7 +35,7 @@ func selectRoutes(actor string) sq.SelectBuilder {
 	return db.SQL.
 		Select("r.id::text", "r.name", "r.description", "r.original_filename", "r.distance_m",
 			"r.ascent_m", "r.descent_m", "r.min_elevation_m", "r.max_elevation_m", "r.has_elevation",
-			"r.point_count", "r.started_at", "r.visibility", "r.version", "r.owner_id::text",
+			"r.point_count", "r.started_at", "r.duration_s", "r.visibility", "r.version", "r.owner_id::text",
 			"u.display_name").
 		Column("route_role(r.id, ?)", nullID(actor)).
 		Columns("r.created_at", "r.updated_at").
@@ -48,7 +48,7 @@ func scanRoute(row pgx.Row) (Route, error) {
 	var role *string
 	err := row.Scan(&r.ID, &r.Name, &r.Description, &r.OriginalFilename, &r.DistanceM, &r.AscentM,
 		&r.DescentM, &r.MinElevationM, &r.MaxElevationM, &r.HasElevation, &r.PointCount,
-		&r.StartedAt, &r.Visibility, &r.Version, &r.OwnerID, &r.OwnerName,
+		&r.StartedAt, &r.DurationS, &r.Visibility, &r.Version, &r.OwnerID, &r.OwnerName,
 		&role, &r.CreatedAt, &r.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && role == nil) {
 		return r, ErrNotFound
@@ -73,6 +73,11 @@ func (s *Store) get(ctx context.Context, q db.Querier, actor, id string) (Route,
 // Get returns a route the actor can view.
 func (s *Store) Get(ctx context.Context, actor, id string) (Route, error) {
 	return s.get(ctx, s.pool, actor, id)
+}
+
+// GetInTx is Get within the caller's transaction.
+func (s *Store) GetInTx(ctx context.Context, tx pgx.Tx, actor, id string) (Route, error) {
+	return s.get(ctx, tx, actor, id)
 }
 
 // Create stores a new route owned by actor as version 1.
@@ -100,11 +105,11 @@ func (s *Store) CreateInTx(ctx context.Context, tx pgx.Tx, actor string, c Conte
 	_, err = tx.Exec(ctx, `
 		INSERT INTO routes (id, owner_id, visibility, name, description, original_filename,
 			distance_m, ascent_m, descent_m, min_elevation_m, max_elevation_m, has_elevation,
-			point_count, started_at, geom, elevation_profile)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-			ST_SetSRID(ST_GeomFromGeoJSON($15), 4326), $16)`,
+			point_count, started_at, duration_s, geom, elevation_profile)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+			ST_SetSRID(ST_GeomFromGeoJSON($16), 4326), $17)`,
 		id, actor, visibility, c.Name, c.Description, c.OriginalFilename, c.DistanceM, c.AscentM,
-		c.DescentM, c.MinElevationM, c.MaxElevationM, c.HasElevation, c.PointCount, c.StartedAt,
+		c.DescentM, c.MinElevationM, c.MaxElevationM, c.HasElevation, c.PointCount, c.StartedAt, c.DurationS,
 		string(c.Geometry), string(profile))
 	if err != nil {
 		return Route{}, fmt.Errorf("insert route: %w", err)
@@ -149,7 +154,7 @@ func snapshot(ctx context.Context, tx pgx.Tx, id, change, actor string, restored
 
 // contentColumns are the versioned columns shared by routes and route_versions.
 var contentColumns = []string{"name", "description", "original_filename", "distance_m", "ascent_m",
-	"descent_m", "min_elevation_m", "max_elevation_m", "point_count", "started_at", "has_elevation",
+	"descent_m", "min_elevation_m", "max_elevation_m", "point_count", "started_at", "duration_s", "has_elevation",
 	"geom", "elevation_profile"}
 
 // lockedRoute is the state of a route locked for a change.
@@ -321,13 +326,15 @@ func (s *Store) ReplaceGeometryInTx(ctx context.Context, tx pgx.Tx, actor, id st
 		UPDATE routes SET
 			original_filename = CASE WHEN $2 THEN original_filename ELSE $3 END,
 			started_at        = CASE WHEN $2 THEN started_at ELSE $4 END,
+			duration_s        = CASE WHEN $2 THEN duration_s ELSE $14 END,
 			distance_m = $5, ascent_m = $6, descent_m = $7, min_elevation_m = $8,
 			max_elevation_m = $9, has_elevation = $10, point_count = $11,
 			geom = ST_SetSRID(ST_GeomFromGeoJSON($12), 4326), elevation_profile = $13,
 			version = version + 1, updated_at = now()
 		WHERE id = $1`,
 		id, keepFileInfo, c.OriginalFilename, c.StartedAt, c.DistanceM, c.AscentM, c.DescentM,
-		c.MinElevationM, c.MaxElevationM, c.HasElevation, c.PointCount, string(c.Geometry), string(profile))
+		c.MinElevationM, c.MaxElevationM, c.HasElevation, c.PointCount, string(c.Geometry), string(profile),
+		c.DurationS)
 	if err != nil {
 		return Route{}, fmt.Errorf("update geometry: %w", err)
 	}

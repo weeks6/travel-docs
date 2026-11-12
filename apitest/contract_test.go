@@ -154,7 +154,6 @@ func TestContractResponseShapes(t *testing.T) {
 	e := setup(t)
 	s := &shapeRecorder{t: t}
 	alice, bob := e.register("alice"), e.register("bob")
-	bobEvents := bob.openEvents()
 	aliceEvents := alice.openEvents()
 
 	// Auth.
@@ -242,52 +241,21 @@ func TestContractResponseShapes(t *testing.T) {
 	s.resp("POST /import-jobs not XML", alice.enqueue("x.gpx", "hello", nil))
 
 	// Trips.
-	tr := alice.do("POST", "/trips", map[string]any{"name": "Hike", "route_id": route.ID})
-	s.resp("POST /trips", tr)
+	tr := alice.do("POST", "/trips", map[string]any{"route_id": route.ID, "date": "2026-05-01", "duration_s": 5400})
+	s.resp("POST /trips route_id", tr)
 	var trip tripJSON
 	tr.decode(&trip)
 	tp := "/trips/" + trip.ID
-	ir := alice.do("POST", tp+"/invitations", map[string]string{"email": "bob@example.com"})
-	s.resp("POST /trips/:id/invitations", ir)
-	s.add("SSE invitation event", sseData(t, bobEvents, "invitation"))
-	var inv invitationJSON
-	ir.decode(&inv)
-	s.resp("GET /trips/:id/invitations", alice.do("GET", tp+"/invitations", nil))
-	s.resp("GET /trip-invitations", bob.do("GET", "/trip-invitations", nil))
-	s.resp("POST /trip-invitations/:id/accept", bob.do("POST", "/trip-invitations/"+inv.ID+"/accept", nil))
+	body, ct = multipartBody(t, "hike.gpx", []byte(timedGPX("Hike", "2026-05-02", 60)), map[string]string{"notes": "n"})
+	s.resp("POST /trips upload", alice.do("POST", "/trips", body, "Content-Type: "+ct))
+	s.resp("POST /trips missing duration", alice.do("POST", "/trips", map[string]any{"route_id": route.ID}))
 	s.resp("GET /trips", alice.do("GET", "/trips", nil))
-	s.resp("GET /trips/:id", bob.do("GET", tp, nil))
-	s.resp("GET /trips/:id/participants", alice.do("GET", tp+"/participants", nil))
-	s.resp("POST /trips/:id/start", alice.do("POST", tp+"/start", nil))
-
-	ws := alice.dialTrip(trip.ID, alice.token)
-	s.add("WS ready", wsJSON(t, ws.next("ready")))
-	s.resp("POST /trips/:id/locations", bob.do("POST", tp+"/locations", map[string]any{
-		"points": []map[string]any{{"lat": 46.0, "lon": 8.0, "ele": 1000, "accuracy_m": 5}}}))
-	s.add("WS location", wsJSON(t, ws.next("location")))
-	ws.send(map[string]any{"type": "location", "lat": 46.01, "lon": 8.0})
-	ws.send(map[string]any{"type": "ping"})
-	s.add("WS pong", wsJSON(t, ws.next("pong")))
-	ws.send(map[string]any{"type": "bogus"})
-	s.add("WS error", wsJSON(t, ws.next("error")))
-	bobWS := bob.dialTrip(trip.ID, bob.token)
-	bobWS.next("ready")
-	s.add("WS presence", wsJSON(t, ws.next("presence")))
-	s.resp("PATCH /trips/:id", alice.do("PATCH", tp, map[string]any{"description": "fun"}))
-	s.add("WS trip", wsJSON(t, ws.next("trip")))
-	s.resp("GET /trips/:id/history", alice.do("GET", tp+"/history", nil))
-	s.resp("DELETE /trips/:id/participants/:user_id", alice.do("DELETE", tp+"/participants/"+bob.user.ID, nil))
-	s.add("WS removed", wsJSON(t, ws.next("removed")))
-	s.add("WS participants", wsJSON(t, ws.next("participants")))
-	ir = alice.do("POST", tp+"/invitations", map[string]string{"email": "bob@example.com"})
-	ir.decode(&inv)
-	s.resp("DELETE /trips/:id/invitations/:invitation_id", alice.do("DELETE", tp+"/invitations/"+inv.ID, nil))
-	ir = alice.do("POST", tp+"/invitations", map[string]string{"email": "bob@example.com"})
-	ir.decode(&inv)
-	s.resp("POST /trip-invitations/:id/decline", bob.do("POST", "/trip-invitations/"+inv.ID+"/decline", nil))
-	s.resp("POST /trips/:id/end", alice.do("POST", tp+"/end", nil))
+	s.resp("GET /trips/stats", alice.do("GET", "/trips/stats", nil))
+	s.resp("GET /trips/stats empty", alice.do("GET", "/trips/stats?year=1999", nil))
+	s.resp("GET /trips/:id", alice.do("GET", tp, nil))
+	s.resp("PATCH /trips/:id", alice.do("PATCH", tp, map[string]any{"notes": "fun"}))
+	s.resp("GET /trips/:id other user", bob.do("GET", tp, nil))
 	s.resp("DELETE /trips/:id", alice.do("DELETE", tp, nil))
-	s.add("WS deleted", wsJSON(t, ws.next("deleted")))
 
 	// Audit log, deletion, misc.
 	s.resp("GET /audit-events", alice.do("GET", "/audit-events", nil))
@@ -323,13 +291,4 @@ func sseJob(t *testing.T, s *sse, id, status string) []byte {
 			return data
 		}
 	}
-}
-
-func wsJSON(t *testing.T, m map[string]any) []byte {
-	t.Helper()
-	b, err := json.Marshal(m)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return b
 }

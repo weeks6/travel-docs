@@ -1,5 +1,5 @@
 // Package events streams a user's real-time notifications (import job
-// progress, trip invitations) as Server-Sent Events.
+// progress) as Server-Sent Events.
 //
 // The stream needs the usual Authorization header, so browsers read it with
 // fetch() rather than EventSource. It ends when the access token expires or

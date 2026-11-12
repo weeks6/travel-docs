@@ -95,6 +95,7 @@
   descent_m: number
   description: string
   distance_m: number
+  duration_s: null
   has_elevation: bool
   id: string
   max_elevation_m: number
@@ -119,6 +120,7 @@
     descent_m: number
     description: string
     distance_m: number
+    duration_s: null
     has_elevation: bool
     id: string
     max_elevation_m: number
@@ -148,6 +150,7 @@
     descent_m: number
     description: string
     distance_m: number
+    duration_s: null
     has_elevation: bool
     id: string
     max_elevation_m: number
@@ -176,6 +179,7 @@
   descent_m: number
   description: string
   distance_m: number
+  duration_s: null
   has_elevation: bool
   id: string
   max_elevation_m: number
@@ -204,6 +208,7 @@
   descent_m: number
   description: string
   distance_m: number
+  duration_s: null
   has_elevation: bool
   id: string
   max_elevation_m: number
@@ -247,6 +252,7 @@
   descent_m: number
   description: string
   distance_m: number
+  duration_s: null
   has_elevation: bool
   id: string
   max_elevation_m: number
@@ -270,6 +276,7 @@
   descent_m: number
   description: string
   distance_m: number
+  duration_s: null
   has_elevation: bool
   id: string
   max_elevation_m: number
@@ -332,6 +339,7 @@
   descent_m: number
   description: string
   distance_m: number
+  duration_s: null
   has_elevation: bool
   id: string
   max_elevation_m: number
@@ -444,6 +452,7 @@
     descent_m: number
     description: string
     distance_m: number
+    duration_s: null
     has_elevation: bool
     id: string
     max_elevation_m: number
@@ -660,129 +669,54 @@
   error: string
 }
 
-== POST /trips -> 201 [Location]
+== POST /trips route_id -> 201 [Location]
 {
+  ascent_m: number
   created_at: string
-  description: string
-  ended_at: null
+  date: string
+  distance_m: number
+  duration_s: number
   id: string
-  location_retention_days: number
-  my_role: string
   name: string
-  owner_id: string
-  owner_name: string
-  participant_count: number
+  notes: string
   route_id: string
   route_name: string
-  started_at: null
-  status: string
   updated_at: string
 }
 
-== POST /trips/:id/invitations -> 201
+== POST /trips upload -> 201 [Location]
 {
+  ascent_m: number
   created_at: string
+  date: string
+  distance_m: number
+  duration_s: number
   id: string
-  invited_by_id: string
-  invited_by_name: string
-  invitee_email: string
-  invitee_id: string
-  invitee_name: string
-  responded_at: null
-  status: string
-  trip_id: string
-  trip_name: string
-  trip_status: string
+  name: string
+  notes: string
+  route_id: string
+  route_name: string
+  updated_at: string
 }
 
-== SSE invitation event
+== POST /trips missing duration -> 400
 {
-  invitation: {
-    created_at: string
-    id: string
-    invited_by_id: string
-    invited_by_name: string
-    invitee_email: string
-    invitee_id: string
-    invitee_name: string
-    responded_at: null
-    status: string
-    trip_id: string
-    trip_name: string
-    trip_status: string
-  }
-  type: string
-}
-
-== GET /trips/:id/invitations -> 200
-{
-  items: [{
-    created_at: string
-    id: string
-    invited_by_id: string
-    invited_by_name: string
-    invitee_email: string
-    invitee_id: string
-    invitee_name: string
-    responded_at: null
-    status: string
-    trip_id: string
-    trip_name: string
-    trip_status: string
-  }
-}
-
-== GET /trip-invitations -> 200
-{
-  items: [{
-    created_at: string
-    id: string
-    invited_by_id: string
-    invited_by_name: string
-    invitee_email: string
-    invitee_id: string
-    invitee_name: string
-    responded_at: null
-    status: string
-    trip_id: string
-    trip_name: string
-    trip_status: string
-  }
-}
-
-== POST /trip-invitations/:id/accept -> 200
-{
-  created_at: string
-  id: string
-  invited_by_id: string
-  invited_by_name: string
-  invitee_email: string
-  invitee_id: string
-  invitee_name: string
-  responded_at: string
-  status: string
-  trip_id: string
-  trip_name: string
-  trip_status: string
+  error: string
 }
 
 == GET /trips -> 200
 {
   items: [{
+    ascent_m: number
     created_at: string
-    description: string
-    ended_at: null
+    date: string
+    distance_m: number
+    duration_s: number
     id: string
-    location_retention_days: number
-    my_role: string
     name: string
-    owner_id: string
-    owner_name: string
-    participant_count: number
+    notes: string
     route_id: string
     route_name: string
-    started_at: null
-    status: string
     updated_at: string
   }
   page: number
@@ -791,228 +725,63 @@
   total_pages: number
 }
 
+== GET /trips/stats -> 200
+{
+  ascent_m: number
+  distance_m: number
+  duration_s: number
+  first_date: string
+  last_date: string
+  trips: number
+}
+
+== GET /trips/stats empty -> 200
+{
+  ascent_m: number
+  distance_m: number
+  duration_s: number
+  first_date: null
+  last_date: null
+  trips: number
+}
+
 == GET /trips/:id -> 200
 {
+  ascent_m: number
   created_at: string
-  description: string
-  ended_at: null
+  date: string
+  distance_m: number
+  duration_s: number
   id: string
-  location_retention_days: number
-  my_role: string
   name: string
-  owner_id: string
-  owner_name: string
-  participant_count: number
+  notes: string
   route_id: string
   route_name: string
-  started_at: null
-  status: string
   updated_at: string
-}
-
-== GET /trips/:id/participants -> 200
-{
-  items: [{
-    display_name: string
-    joined_at: string
-    last_position: null
-    last_seen_at: null
-    online: bool
-    role: string
-    user_id: string
-  }
-}
-
-== POST /trips/:id/start -> 200
-{
-  created_at: string
-  description: string
-  ended_at: null
-  id: string
-  location_retention_days: number
-  my_role: string
-  name: string
-  owner_id: string
-  owner_name: string
-  participant_count: number
-  route_id: string
-  route_name: string
-  started_at: string
-  status: string
-  updated_at: string
-}
-
-== WS ready
-{
-  participants: [{
-    display_name: string
-    joined_at: string
-    last_position: null
-    last_seen_at: string
-    online: bool
-    role: string
-    user_id: string
-  }
-  trip: {
-    created_at: string
-    description: string
-    ended_at: null
-    id: string
-    location_retention_days: number
-    my_role: string
-    name: string
-    owner_id: string
-    owner_name: string
-    participant_count: number
-    route_id: string
-    route_name: string
-    started_at: string
-    status: string
-    updated_at: string
-  }
-  type: string
-  user_id: string
-}
-
-== POST /trips/:id/locations -> 202
-{
-  accepted: number
-}
-
-== WS location
-{
-  accuracy_m: number
-  ele: number
-  lat: number
-  lon: number
-  recorded_at: string
-  type: string
-  user_id: string
-}
-
-== WS pong
-{
-  type: string
-}
-
-== WS error
-{
-  code: string
-  error: string
-  type: string
-}
-
-== WS presence
-{
-  at: string
-  online: bool
-  type: string
-  user_id: string
 }
 
 == PATCH /trips/:id -> 200
 {
+  ascent_m: number
   created_at: string
-  description: string
-  ended_at: null
+  date: string
+  distance_m: number
+  duration_s: number
   id: string
-  location_retention_days: number
-  my_role: string
   name: string
-  owner_id: string
-  owner_name: string
-  participant_count: number
+  notes: string
   route_id: string
   route_name: string
-  started_at: string
-  status: string
   updated_at: string
 }
 
-== WS trip
+== GET /trips/:id other user -> 404
 {
-  type: string
-}
-
-== GET /trips/:id/history -> 200
-{
-  features: [{
-    geometry: {
-      coordinates: [number
-      type: string
-    }
-    properties: {
-      display_name: string
-      first_recorded_at: string
-      last_recorded_at: string
-      point_count: number
-      returned_points: number
-      user_id: string
-    }
-    type: string
-  }
-  type: string
-}
-
-== DELETE /trips/:id/participants/:user_id -> 204
-(empty)
-
-== WS removed
-{
-  type: string
-  user_id: string
-}
-
-== WS participants
-{
-  type: string
-}
-
-== DELETE /trips/:id/invitations/:invitation_id -> 204
-(empty)
-
-== POST /trip-invitations/:id/decline -> 200
-{
-  created_at: string
-  id: string
-  invited_by_id: string
-  invited_by_name: string
-  invitee_email: string
-  invitee_id: string
-  invitee_name: string
-  responded_at: string
-  status: string
-  trip_id: string
-  trip_name: string
-  trip_status: string
-}
-
-== POST /trips/:id/end -> 200
-{
-  created_at: string
-  description: string
-  ended_at: string
-  id: string
-  location_retention_days: number
-  my_role: string
-  name: string
-  owner_id: string
-  owner_name: string
-  participant_count: number
-  route_id: string
-  route_name: string
-  started_at: string
-  status: string
-  updated_at: string
+  error: string
 }
 
 == DELETE /trips/:id -> 204
 (empty)
-
-== WS deleted
-{
-  type: string
-}
 
 == GET /audit-events -> 200
 {

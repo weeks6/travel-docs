@@ -63,7 +63,7 @@ func (h *Handler) upload(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	f, filename, err := readGPXUpload(c)
+	f, filename, err := ReadGPXUpload(c)
 	if err != nil {
 		return err
 	}
@@ -79,8 +79,8 @@ func (h *Handler) upload(c *echo.Context) error {
 	return writeRoute(c, http.StatusCreated, route)
 }
 
-// readGPXUpload parses the multipart "file" field as GPX.
-func readGPXUpload(c *echo.Context) (*gpx.File, string, error) {
+// ReadGPXUpload parses the multipart "file" field as GPX (rules in ingest.go).
+func ReadGPXUpload(c *echo.Context) (*gpx.File, string, error) {
 	header, err := c.FormFile("file")
 	if err != nil {
 		if echo.StatusCode(err) != 0 {
@@ -271,7 +271,7 @@ func (h *Handler) replaceGeometry(c *echo.Context) error {
 	geoJSON := false
 	switch mediaType {
 	case echo.MIMEMultipartForm:
-		if f, filename, err = readGPXUpload(c); err != nil {
+		if f, filename, err = ReadGPXUpload(c); err != nil {
 			return err
 		}
 	case echo.MIMEApplicationJSON, "application/geo+json":

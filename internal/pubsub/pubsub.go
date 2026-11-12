@@ -1,5 +1,5 @@
-// Package pubsub delivers small real-time events (job progress, trip
-// locations, presence) to subscribers.
+// Package pubsub delivers small real-time events (import job progress,
+// worker control messages) to subscribers.
 //
 // Two brokers are provided:
 //   - NATS sends events through a NATS server (core NATS, at-most-once),
@@ -206,8 +206,5 @@ func (l *Local) Subscribe(_ context.Context, topic string) (*Subscription, error
 // Close ends all subscriptions; later Subscribe calls fail.
 func (l *Local) Close() { l.all.dropAll(true) }
 
-// UserTopic carries events for one user (import progress, invitations).
+// UserTopic carries events for one user (import progress).
 func UserTopic(userID string) string { return "user." + userID }
-
-// TripTopic carries a trip's live events (locations, presence, changes).
-func TripTopic(tripID string) string { return "trip." + tripID }

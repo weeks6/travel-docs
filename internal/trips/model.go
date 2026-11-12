@@ -1,159 +1,105 @@
-// Package trips implements group trips: invitations, participants, live
-// location sharing over WebSockets, presence, location history and its
-// retention.
+// Package trips is a personal log of trips: a route you went on (one you
+// can see, or a GPX file uploaded for the trip), the date and how long it
+// took. Trips are private to their owner; everyone else gets 404.
 //
-// Permissions:
-//   - the owner can edit, start, end and delete the trip, invite people and
-//     remove participants;
-//   - participants (members) can see the trip, everyone's positions and the
-//     history, share their own location and leave;
-//   - everyone else gets 404.
+// When the route's GPX file has timestamps, the date and duration default
+// to the recorded ones. A trip keeps the route's distance and ascent from
+// when it was logged, and survives the route being deleted.
 package trips
 
 import (
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/weeks6/travel-docs/internal/apperr"
 	"github.com/weeks6/travel-docs/internal/paging"
 )
 
 const (
-	RoleOwner  = "owner"
-	RoleMember = "member"
-
-	StatusPlanned = "planned"
-	StatusActive  = "active"
-	StatusEnded   = "ended"
-
-	DefaultRetentionDays = 30
-	MaxRetentionDays     = 365
-
-	// MaxBatchPoints limits points per POST /trips/{id}/locations.
-	MaxBatchPoints = 100
-	// MaxPointAge is how old a reported point may be (offline buffering).
-	MaxPointAge = 24 * time.Hour
-	// MaxClockSkew is how far in the future a point's time may be.
-	MaxClockSkew = 2 * time.Minute
-	// PresenceTimeout is how long a participant counts as online after the
-	// last sign of life (connections send one at least every PresenceInterval).
-	PresenceTimeout  = 75 * time.Second
-	PresenceInterval = 25 * time.Second
+	dateLayout      = "2006-01-02"
+	maxNameLength   = 200
+	maxNotesLength  = 5000
+	MaxDurationDays = 60
 )
 
 var (
-	ErrNotFound       = apperr.New(apperr.NotFound, "trip not found")
-	errOwnerOnly      = apperr.New(apperr.Forbidden, "only the trip owner can do this")
-	errNotActive      = apperr.New(apperr.Conflict, "the trip is not active; locations can be shared only while it is running")
-	errInvitationGone = apperr.New(apperr.NotFound, "invitation not found")
+	ErrNotFound      = apperr.New(apperr.NotFound, "trip not found")
+	errRouteGone     = apperr.New(apperr.NotFound, "route not found")
+	errNoDate        = apperr.New(apperr.Invalid, "date is required: the route has no recorded start time")
+	errNoDuration    = apperr.New(apperr.Invalid, "duration_s is required: the route has no recorded duration")
+	errRouteChange   = apperr.New(apperr.Invalid, "a trip's route can't be changed; log a new trip instead")
+	errRouteRequired = apperr.New(apperr.Invalid,
+		`choose a route ("route_id") or upload a GPX file (multipart/form-data, field "file")`)
+	errNameEmpty = apperr.New(apperr.Invalid, "name must not be empty")
 )
 
-// Trip is a group trip as seen by one participant.
+// Trip is one logged trip.
 type Trip struct {
-	ID                    string     `json:"id"`
-	Name                  string     `json:"name"`
-	Description           string     `json:"description"`
-	Status                string     `json:"status"`
-	RouteID               *string    `json:"route_id"`   // only if the viewer may see the route
-	RouteName             *string    `json:"route_name"` // likewise
-	LocationRetentionDays int        `json:"location_retention_days"`
-	OwnerID               string     `json:"owner_id"`
-	OwnerName             string     `json:"owner_name"`
-	MyRole                string     `json:"my_role"`
-	ParticipantCount      int        `json:"participant_count"`
-	StartedAt             *time.Time `json:"started_at"`
-	EndedAt               *time.Time `json:"ended_at"`
-	CreatedAt             time.Time  `json:"created_at"`
-	UpdatedAt             time.Time  `json:"updated_at"`
+	ID        string  `json:"id"`
+	Name      string  `json:"name"`
+	Notes     string  `json:"notes"`
+	Date      string  `json:"date"` // YYYY-MM-DD
+	DurationS int     `json:"duration_s"`
+	DistanceM float64 `json:"distance_m"` // the route's, when the trip was logged
+	AscentM   float64 `json:"ascent_m"`
+	// RouteID and RouteName are null when the route was deleted or is no
+	// longer visible to the owner.
+	RouteID   *string   `json:"route_id"`
+	RouteName *string   `json:"route_name"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// Position is a reported location.
-type Position struct {
-	Lat        float64   `json:"lat"`
-	Lon        float64   `json:"lon"`
-	Ele        *float64  `json:"ele,omitempty"`
-	AccuracyM  *float64  `json:"accuracy_m,omitempty"`
-	SpeedMps   *float64  `json:"speed_mps,omitempty"`
-	HeadingDeg *float64  `json:"heading_deg,omitempty"`
-	RecordedAt time.Time `json:"recorded_at"`
-}
-
-// Participant is a trip member with presence and last known position.
-type Participant struct {
-	UserID       string     `json:"user_id"`
-	DisplayName  string     `json:"display_name"`
-	Role         string     `json:"role"`
-	JoinedAt     time.Time  `json:"joined_at"`
-	Online       bool       `json:"online"`
-	LastSeenAt   *time.Time `json:"last_seen_at"`
-	LastPosition *Position  `json:"last_position"`
-}
-
-// Invitation to join a trip.
-type Invitation struct {
-	ID            string     `json:"id"`
-	TripID        string     `json:"trip_id"`
-	TripName      string     `json:"trip_name"`
-	TripStatus    string     `json:"trip_status"`
-	InviteeID     string     `json:"invitee_id"`
-	InviteeName   string     `json:"invitee_name"`
-	InviteeEmail  string     `json:"invitee_email,omitempty"` // only for the trip owner
-	InvitedByID   *string    `json:"invited_by_id"`
-	InvitedByName *string    `json:"invited_by_name"`
-	Status        string     `json:"status"` // pending, accepted, declined, revoked
-	CreatedAt     time.Time  `json:"created_at"`
-	RespondedAt   *time.Time `json:"responded_at"`
-}
-
-// Input creates or updates a trip; nil fields are unchanged. RouteID "" removes the route.
-type Input struct {
-	Name                  *string `json:"name"`
-	Description           *string `json:"description"`
-	RouteID               *string `json:"route_id"`
-	LocationRetentionDays *int    `json:"location_retention_days"`
-}
-
-// ListResult is one page of trips.
+// ListResult is one page of trips, newest date first.
 type ListResult = paging.Page[Trip]
 
-// Event types: the "type" field of live events.
-const (
-	// On the trip topic, sent to WebSocket clients.
-	EventLocation     = "location"     // LocationEvent
-	EventPresence     = "presence"     // PresenceEvent
-	EventTrip         = "trip"         // ChangeEvent: details or status changed; reload the trip
-	EventParticipants = "participants" // ChangeEvent: reload participants
-	EventRemoved      = "removed"      // ChangeEvent: UserID left or was removed
-	EventDeleted      = "deleted"      // ChangeEvent: the trip was deleted
-	// On the user topic, sent over GET /events.
-	EventInvitation = "invitation" // UserEvent
-)
+// Stats sums up trips.
+type Stats struct {
+	Trips     int     `json:"trips"`
+	DurationS int64   `json:"duration_s"`
+	DistanceM float64 `json:"distance_m"`
+	AscentM   float64 `json:"ascent_m"`
+	FirstDate *string `json:"first_date"`
+	LastDate  *string `json:"last_date"`
+}
 
-// Real-time events published on the trip topic and sent to WebSocket clients.
-type (
-	// LocationEvent: a participant's new position.
-	LocationEvent struct {
-		Type   string `json:"type"` // "location"
-		UserID string `json:"user_id"`
-		Position
-	}
-	// PresenceEvent: a participant came online or went offline.
-	PresenceEvent struct {
-		Type   string    `json:"type"` // "presence"
-		UserID string    `json:"user_id"`
-		Online bool      `json:"online"`
-		At     time.Time `json:"at"`
-	}
-	// ChangeEvent: something else changed. Type is "trip" (details or
-	// status; reload the trip), "participants" (reload participants),
-	// "removed" (UserID left or was removed) or "deleted".
-	ChangeEvent struct {
-		Type   string `json:"type"`
-		UserID string `json:"user_id,omitempty"`
-	}
-)
+// Input creates or changes a trip; nil fields are unchanged (or, when
+// creating, default to the route's name, recorded date and duration).
+type Input struct {
+	RouteID   *string `json:"route_id"` // required when logging an existing route
+	Name      *string `json:"name"`
+	Notes     *string `json:"notes"`
+	Date      *string `json:"date"` // YYYY-MM-DD
+	DurationS *int    `json:"duration_s"`
+}
 
-// UserEvent is published on a user's topic about their invitations.
-type UserEvent struct {
-	Type       string     `json:"type"` // "invitation"
-	Invitation Invitation `json:"invitation"`
+// validate checks and normalizes the given fields.
+func (in *Input) validate(now time.Time) error {
+	if in.Name != nil {
+		n := strings.TrimSpace(*in.Name)
+		if utf8.RuneCountInString(n) > maxNameLength {
+			return apperr.Newf(apperr.Invalid, "name must be at most %d characters", maxNameLength)
+		}
+		in.Name = &n
+	}
+	if in.Notes != nil && utf8.RuneCountInString(*in.Notes) > maxNotesLength {
+		return apperr.Newf(apperr.Invalid, "notes must be at most %d characters", maxNotesLength)
+	}
+	if in.Date != nil {
+		d, err := time.Parse(dateLayout, strings.TrimSpace(*in.Date))
+		if err != nil {
+			return apperr.New(apperr.Invalid, "date must be a date such as 2026-05-01")
+		}
+		// A day of slack for time zones ahead of UTC.
+		if d.After(now.UTC().AddDate(0, 0, 1)) || d.Year() < 1900 {
+			return apperr.New(apperr.Invalid, "date must not be in the future")
+		}
+		s := d.Format(dateLayout)
+		in.Date = &s
+	}
+	if in.DurationS != nil && (*in.DurationS < 1 || *in.DurationS > MaxDurationDays*86400) {
+		return apperr.Newf(apperr.Invalid, "duration_s must be between 1 second and %d days", MaxDurationDays)
+	}
+	return nil
 }

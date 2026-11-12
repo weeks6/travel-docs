@@ -1,4 +1,4 @@
-// Package ratelimit limits how often a key (user, IP address, trip member)
+// Package ratelimit limits how often a key (user or IP address)
 // may do something, using token buckets.
 package ratelimit
 

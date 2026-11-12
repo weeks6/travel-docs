@@ -1,7 +1,7 @@
 ## Overview
 
-- **API** (Go, this directory): routes, collections, background GPX imports, group trips with live locations over WebSockets.
-- **Web UI** (Next.js, [`frontend/`](frontend/)): talks to the API directly from the browser (CORS, WebSocket).
+- **API** (Go, this directory): routes, collections, background GPX imports, and a personal trip log (when you went on a route and how long it took).
+- **Web UI** (Next.js, [`frontend/`](frontend/)): talks to the API directly from the browser (CORS).
 - **PostgreSQL + PostGIS**: all data and the import job queue.
 - **NATS**: real-time event fan-out between API instances (core pub/sub; best effort, clients resync after a drop).
 
@@ -40,7 +40,7 @@ The web UI's API address is built into its bundle: set `NEXT_PUBLIC_API_URL` whe
 | `DATABASE_URL` | `postgres://travel:travel@localhost:5432/travel_docs?sslmode=disable` | |
 | `ADDR` | `:8080` | API listen address |
 | `METRICS_ADDR` | `:9090` | Prometheus `/metrics` on a separate port; `off` disables it |
-| `CORS_ORIGINS` | `http://localhost:3000` | Comma-separated browser origins allowed to call the API (and open WebSockets); `*` allows any |
+| `CORS_ORIGINS` | `http://localhost:3000` | Comma-separated browser origins allowed to call the API; `*` allows any |
 | `APP_ENV` | `production` | `dev` allows the committed development JWT keys (`scripts/dev.sh` sets it) |
 | `JWT_PRIVATE_KEY_FILE` / `JWT_PUBLIC_KEY_FILE` | required; with `APP_ENV=dev`: `dev/keys/jwt.pem` / `dev/keys/jwt.pub.pem` | ES256 key pair. Never deploy the development keys: anyone can sign tokens with them |
 | `LOG_FORMAT` / `LOG_LEVEL` | `json` / `info` | `text` is easier to read locally |
@@ -53,7 +53,6 @@ The web UI's API address is built into its bundle: set `NEXT_PUBLIC_API_URL` whe
 | `SHUTDOWN_TIMEOUT` | `25s` | Overall graceful shutdown limit |
 | `RATE_LIMIT_RPS` / `RATE_LIMIT_BURST` | `20` / `40` | All API requests, per user (or per IP when anonymous). `0` disables |
 | `RATE_LIMIT_AUTH_PER_MINUTE` / `RATE_LIMIT_AUTH_BURST` | `20` / `10` | Login, registration and token refresh, per IP |
-| `RATE_LIMIT_LOCATIONS_RPS` / `RATE_LIMIT_LOCATIONS_BURST` | `2` / `10` | Live location messages per trip participant |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | Enables OpenTelemetry tracing over OTLP/HTTP (e.g. `http://localhost:4318`); other `OTEL_*` variables apply too |
 
 ## Authentication
@@ -66,7 +65,7 @@ No cookies are used.
 - The web UI keeps the access token in memory and the refresh token in localStorage.
 - Reusing an old refresh token ends that whole session (theft detection).
 - Changing your password or "log out everywhere" also invalidates existing access tokens immediately.
-- Long-lived connections (event stream, WebSockets) end when their access token expires, unless a WebSocket sends a fresh one (see below), so revoked sessions don't linger.
+- The event stream ends when its access token expires, so revoked sessions don't linger.
 
 | Method | Path | Description |
 |---|---|---|
@@ -90,7 +89,7 @@ No cookies are used.
 - Routes and collections are private by default. Others get **404** for things they can't see, and **403** for things they can see but not change.
 - Collections have the same roles. Collection editors can rename it and add or remove routes; only the owner can change visibility, share or delete it.
 - You can add your own routes or public routes to a collection. Adding your own route lets everyone who can see the collection see that route too.
-- Trips: the owner edits, starts, ends and deletes the trip, invites people and removes participants. Participants see the trip, everyone's positions and the history, share their own location and can leave. Everyone else gets 404.
+- Trips are private: only their owner sees them (everyone else gets 404). You can log a trip on any route you can see.
 
 ## API
 
@@ -156,51 +155,29 @@ How it works:
 `GET /events` (with the `Authorization` header) is a [Server-Sent Events](https://html.spec.whatwg.org/multipage/server-sent-events.html) stream of your own notifications. Browsers read it with `fetch()`, since `EventSource` can't send headers.
 
 - `event: ready` — connected. Reload anything that might have changed while you were disconnected.
-- data events: `{"type":"job","job":{…}}` on every import job change; `{"type":"invitation","invitation":{…}}` when you are invited to a trip, or an invitation you sent or received changes.
+- data events: `{"type":"job","job":{…}}` on every import job change.
 - `event: reauth` — your access token expired: refresh it and reconnect. `event: resync` — events may have been missed: reload and reconnect. `event: shutdown` — the server is stopping: reconnect (to another instance).
 
 ### Trips
 
+A trip is a route you went on, with the date and how long it took: your personal log. When the route's GPX file has timestamps, the date and duration default to the recorded ones (routes report the recorded `duration_s`). A trip keeps the route's `distance_m` and `ascent_m` from when it was logged; if the route is later deleted or hidden from you, the trip stays with `route_id`/`route_name` null.
+
 | Method | Path | Description |
 |---|---|---|
-| POST | `/trips` | `{name, description?, route_id?, location_retention_days? (1–365, default 30)}`. You become the owner |
-| GET | `/trips` | Trips you participate in; active first. `status=planned\|active\|ended`, `page`, `page_size` |
-| GET / PATCH / DELETE | `/trips/{id}` | PATCH `{name?, description?, route_id? ("" removes it), location_retention_days?}` (owner). `route_id`/`route_name` are only shown to participants who may see the route |
-| POST | `/trips/{id}/start` / `/end` | `planned` → `active` → `ended` (owner) |
-| GET | `/trips/{id}/participants` | Participants with `online`, `last_seen_at` and `last_position` |
-| DELETE | `/trips/{id}/participants/{user_id}` | Owner removes someone, or you leave. Their location history in the trip is deleted |
-| GET / POST | `/trips/{id}/invitations` | Owner lists invitations or invites `{email}` of a registered user |
-| DELETE | `/trips/{id}/invitations/{invitation_id}` | Owner withdraws a pending invitation |
-| GET | `/trip-invitations` | Invitations sent to you: `status=pending` (default) or `all` |
-| POST | `/trip-invitations/{id}/accept` / `/decline` | Join the trip, or decline |
-| POST | `/trips/{id}/locations` | `{points: [{lat, lon, ele?, accuracy_m?, speed_mps?, heading_deg?, recorded_at?}]}` (1–100), for clients without a WebSocket or sending buffered points. Only while the trip is active; points may be up to 24 h old. 202 |
-| GET | `/trips/{id}/history` | GeoJSON FeatureCollection with each participant's track (LineString of `[lon, lat]`). `user_id`, `since`, `until` (RFC 3339), `max_points` per participant (default 2000; longer tracks are evenly thinned) |
-| GET | `/trips/{id}/ws` | WebSocket, see below |
+| POST | `/trips` | Log a trip on a route you can see: `{route_id, date? (YYYY-MM-DD), duration_s?, name? (default: the route's), notes?}`. Or upload the track with it as multipart/form-data: `file` plus optional `name`, `notes`, `date`, `duration_s` and `visibility` (of the new route, private by default); the file becomes a new route of yours. 400 when no date or duration is given and the file has none. 201 |
+| GET | `/trips` | Your trips, newest date first. `year`, `route_id`, `page`, `page_size` |
+| GET | `/trips/stats` | `{trips, duration_s, distance_m, ascent_m, first_date, last_date}` over your trips; same `year`/`route_id` filters |
+| GET / PATCH / DELETE | `/trips/{id}` | PATCH `{name?, notes?, date?, duration_s?}`; the route can't be changed. Deleting a trip keeps its route |
 
-**WebSocket protocol** (JSON text messages):
-
-1. Connect to `/trips/{id}/ws` and send `{"type":"auth","token":"<access token>"}` within 10 s (browsers can't set headers on WebSockets; tokens in URLs would end up in logs).
-2. The server answers `{"type":"ready","user_id","trip":{…},"participants":[…]}` with the current state, then streams events:
-   - `{"type":"location","user_id","lat","lon",…,"recorded_at"}` — a participant's new position (also your own);
-   - `{"type":"presence","user_id","online","at"}` — someone connected or disconnected (repeated every 25 s while connected);
-   - `{"type":"trip"}` — the trip changed (reload it); `{"type":"participants"}` — someone joined or left; `{"type":"removed","user_id"}`; `{"type":"deleted"}`;
-   - `{"type":"error","error","code"}` — e.g. `rate_limited`, `invalid_location`, `trip_not_active`.
-3. Send `{"type":"location","lat","lon","ele"?,"accuracy_m"?,"speed_mps"?,"heading_deg"?,"recorded_at"?}` while the trip is active (at most 2 per second on average, bursts of 10). `{"type":"ping"}` gets `{"type":"pong"}`.
-4. Before your access token expires, send `{"type":"auth","token":"<new token>"}` on the open socket.
-
-Close codes: **4001** token missing, invalid or expired (refresh, then reconnect); **4003** you were removed (don't reconnect); **4004** trip not found or deleted (don't reconnect); **4009** events may have been missed (reconnect for a fresh snapshot); **1001** server shutting down (reconnect, with backoff).
-
-**Presence** is tracked per connection: a participant is online while one of their connections is open (shown as offline once no sign of life arrived for 75 s, which also covers crashed instances). **Last known positions** are stored per participant and survive reconnects.
-
-**Retention:** a background job deletes location points older than the trip's `location_retention_days` (by the time the server received them), clears last positions that old, and resets stale presence. Leaving or being removed from a trip deletes your points in it; deleting the trip deletes everything.
+Durations are 1 second to 60 days; dates may not be in the future.
 
 ## Operations
 
 - **Logs** are structured (`log/slog`, JSON by default) with request IDs, user IDs, trace IDs and durations in milliseconds; import jobs log their start and outcome with job ID, attempt and duration.
-- **Metrics** (Prometheus, `METRICS_ADDR`): request counts and latencies per route pattern, requests in flight, rate-limited requests, import jobs by outcome and duration, queue length, running jobs, upload sizes, open WebSockets, WebSocket messages, stored and rejected locations, locations deleted by retention, and pub/sub events.
+- **Metrics** (Prometheus, `METRICS_ADDR`): request counts and latencies per route pattern, requests in flight, rate-limited requests, import jobs by outcome and duration, queue length, running jobs, upload sizes and pub/sub events.
 - **Tracing** (OpenTelemetry, when `OTEL_EXPORTER_OTLP_ENDPOINT` is set): a span per request (continuing incoming `traceparent` headers) and per import job, with parse, analyze and save steps.
 - **Rate limits** answer **429** with `Retry-After`.
-- **Graceful shutdown** (SIGTERM/Ctrl+C): stop accepting connections, tell event streams and WebSockets to reconnect elsewhere (close code 1001), finish in-flight requests, let import jobs finish or requeue them, then stop background work.
+- **Graceful shutdown** (SIGTERM/Ctrl+C): stop accepting connections, tell event streams to reconnect elsewhere, finish in-flight requests, and let import jobs finish or requeue them.
 - **Several instances** can run against the same database: the job queue and leases work across them, and events go through the shared NATS server.
 
 ## Tests
@@ -208,18 +185,8 @@ Close codes: **4001** token missing, invalid or expired (refresh, then reconnect
 ```sh
 go test ./...   # unit tests
 TEST_DATABASE_URL='postgres://travel:travel@localhost:5432/travel_docs_test?sslmode=disable' go test ./...   # + end-to-end API tests (apitest/) against PostGIS
-cd frontend && npm run lint && npx tsc --noEmit && npm run build
+cd frontend && npm run lint && npx tsc --noEmit && npm test && npm run build
+cd frontend && npm run e2e   # browser smoke test against a real API (needs the db container)
 ```
 
-The API tests delete all data in the test database. They cover background imports (progress, idempotency, cancel, retries, crashed workers, shutdown, large files), trips, WebSockets (authentication, presence, live locations, removal, token expiry, shutdown), retention, rate limits and CORS. CI (`.github/workflows/ci.yml`) runs gofmt, `go vet`, all Go tests with `-race` against a PostGIS service, lints, type-checks and builds the web UI, and builds both Docker images.
-
-### Load test
-
-`cmd/loadtest` simulates group trips against a running server: it registers users, creates and starts trips, connects every participant over WebSocket, sends location updates and reports delivery and fan-out latency (optionally with extra HTTP load). It deletes its users afterwards.
-
-```sh
-RATE_LIMIT_AUTH_PER_MINUTE=0 go run .   # registering many users from one address would otherwise be throttled
-go run ./cmd/loadtest -base http://localhost:8080 -trips 10 -members 10 -rate 1 -duration 1m -http-rps 50
-```
-
-On a laptop with one instance, 100 participants in 10 trips at 1 update/s each delivered 100% of updates with a fan-out latency of p50 ≈ 7 ms and p99 ≈ 30 ms.
+The API tests delete all data in the test database. They cover background imports (progress, idempotency, cancel, retries, crashed workers, shutdown, large files), trips (defaults from the recording, uploads, privacy, stats), rate limits and CORS, and golden files in `apitest/testdata/` pin every endpoint and response shape (`make contract-update` after an intended API change). CI (`.github/workflows/ci.yml`) runs gofmt, `go vet`, all Go tests with `-race` against a PostGIS service, lints, type-checks, unit-tests and builds the web UI, runs the browser smoke test, and builds both Docker images.

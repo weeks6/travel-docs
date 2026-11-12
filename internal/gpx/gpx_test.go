@@ -153,3 +153,20 @@ func TestParseReaderCanceled(t *testing.T) {
 		t.Fatalf("err = %v, want context.Canceled (not a validation error)", err)
 	}
 }
+
+func TestDuration(t *testing.T) {
+	at := func(h, m int) Point { return Point{Time: time.Date(2026, 5, 1, h, m, 0, 0, time.UTC)} }
+	f := &File{Segments: []Segment{{{}, at(8, 0), at(8, 30)}, {at(9, 0), {}}}}
+	if d, ok := f.Duration(); !ok || d != time.Hour {
+		t.Errorf("Duration = %v, %v; want 1h", d, ok)
+	}
+	for _, f := range []*File{
+		{Segments: []Segment{{{}, {}}}},             // no timestamps
+		{Segments: []Segment{{at(8, 0)}}},           // one
+		{Segments: []Segment{{at(9, 0), at(8, 0)}}}, // backwards
+	} {
+		if _, ok := f.Duration(); ok {
+			t.Errorf("Duration of %v reported ok", f.Segments)
+		}
+	}
+}

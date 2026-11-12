@@ -43,10 +43,6 @@ type RateLimits struct {
 	// refresh per IP address (password guessing).
 	AuthPerMinute float64
 	AuthBurst     int
-	// LocationsPerSecond and LocationsBurst limit live location messages
-	// per trip participant.
-	LocationsPerSecond float64
-	LocationsBurst     int
 }
 
 // Config holds the server's dependencies and settings.
@@ -63,21 +59,19 @@ type Config struct {
 	UploadSlots int
 }
 
-// Server is the HTTP handler plus the long-lived connections it owns.
+// Server is the HTTP handler plus the long-lived event streams it owns.
 type Server struct {
 	*echo.Echo
-	hub           *trips.Hub
 	streams       chan struct{}
 	closeStreamsO sync.Once
 }
 
-// CloseStreams ends event streams and WebSocket connections (clients
-// reconnect to another instance) and waits until the WebSockets closed or
-// ctx ends. Call it when shutdown starts, e.g. from
+// CloseStreams ends open event streams so that clients reconnect to
+// another instance. Call it when shutdown starts, e.g. from
 // http.Server.RegisterOnShutdown.
-func (s *Server) CloseStreams(ctx context.Context) error {
+func (s *Server) CloseStreams(context.Context) error {
 	s.closeStreamsO.Do(func() { close(s.streams) })
-	return s.hub.Shutdown(ctx)
+	return nil
 }
 
 // New returns the application's HTTP handler.
@@ -140,17 +134,13 @@ func New(cfg Config) (*Server, error) {
 
 	s := &Server{Echo: e, streams: make(chan struct{})}
 	routeStore := routes.NewStore(cfg.Pool)
-	tripStore := trips.NewStore(cfg.Pool)
-	s.hub = trips.NewHub(tripStore, cfg.Auth, cfg.Broker, log,
-		ratelimit.New(cfg.RateLimits.LocationsPerSecond, cfg.RateLimits.LocationsBurst),
-		originPatterns(cfg.CORSOrigins))
 
 	cfg.Auth.RegisterHandlers(e)
 	(&routes.Handler{Store: routeStore}).Register(e)
 	(&collections.Handler{Store: collections.NewStore(cfg.Pool)}).Register(e)
 	(&audit.Handler{Store: &audit.Store{Pool: cfg.Pool}, CurrentUser: auth.RequireUser}).Register(e)
 	imports.NewHandler(imports.NewStore(cfg.Pool), routeStore, cfg.Broker, log, cfg.UploadSlots).Register(e)
-	(&trips.Handler{Store: tripStore, Hub: s.hub, Broker: cfg.Broker, Log: log}).Register(e)
+	(&trips.Handler{Store: trips.NewStore(cfg.Pool, routeStore)}).Register(e)
 	(&events.Handler{Broker: cfg.Broker, Shutdown: s.streams}).Register(e)
 
 	e.GET("/healthz", func(c *echo.Context) error {
@@ -198,20 +188,9 @@ func clientKey(c *echo.Context) string {
 	return "ip:" + c.RealIP()
 }
 
-// apiRateLimit limits all requests per client, except WebSocket upgrades:
-// those authenticate inside the connection (so they would all count as one
-// anonymous client per IP) and have their own message limit.
+// apiRateLimit limits all requests per client.
 func apiRateLimit(l *ratelimit.Limiter) echo.MiddlewareFunc {
-	mw := ratelimit.Middleware(l, "api", clientKey)
-	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		withLimit := mw(next)
-		return func(c *echo.Context) error {
-			if c.Path() == "/trips/:id/ws" {
-				return next(c)
-			}
-			return withLimit(c)
-		}
-	}
+	return ratelimit.Middleware(l, "api", clientKey)
 }
 
 // authRateLimit limits the endpoints that check passwords or tokens, per IP.
@@ -227,25 +206,6 @@ func authRateLimit(l *ratelimit.Limiter) echo.MiddlewareFunc {
 			return next(c)
 		}
 	}
-}
-
-// originPatterns turns CORS origins ("http://localhost:3000") into the
-// host patterns the WebSocket origin check uses ("localhost:3000").
-func originPatterns(origins []string) []string {
-	out := make([]string, 0, len(origins))
-	for _, o := range origins {
-		if o == "*" {
-			out = append(out, "*")
-			continue
-		}
-		if i := len("https://"); len(o) > i && o[:i] == "https://" {
-			o = o[i:]
-		} else if i := len("http://"); len(o) > i && o[:i] == "http://" {
-			o = o[i:]
-		}
-		out = append(out, o)
-	}
-	return out
 }
 
 var statusByKind = map[apperr.Kind]int{

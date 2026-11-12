@@ -1,41 +1,30 @@
 package trips
 
 import (
-	"math"
 	"testing"
 	"time"
+
+	"github.com/weeks6/travel-docs/internal/apperr"
 )
 
-func TestValidatePosition(t *testing.T) {
-	now := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
-	f := func(v float64) *float64 { return &v }
-	ok := []Position{
-		{Lat: 46.5, Lon: 8.1},
-		{Lat: -90, Lon: 180, Ele: f(-10), AccuracyM: f(5), SpeedMps: f(1.2), HeadingDeg: f(359.9)},
-		{Lat: 0, Lon: 0, RecordedAt: now.Add(-23 * time.Hour)},
-		{Lat: 0, Lon: 0, RecordedAt: now.Add(time.Minute)},
+func TestInputValidate(t *testing.T) {
+	now := time.Date(2026, 11, 12, 23, 0, 0, 0, time.UTC)
+	str := func(s string) *string { return &s }
+	num := func(n int) *int { return &n }
+
+	in := Input{Name: str("  Hike "), Date: str(" 2026-11-13 "), DurationS: num(60)}
+	if err := in.validate(now); err != nil || *in.Name != "Hike" || *in.Date != "2026-11-13" {
+		t.Errorf("valid input: %v, %+v", err, in) // tomorrow is fine (time zones)
 	}
-	for _, p := range ok {
-		if err := ValidatePosition(&p, now); err != nil {
-			t.Errorf("%+v: %v", p, err)
-		}
-		if p.RecordedAt.IsZero() {
-			t.Errorf("%+v: recorded_at must default to now", p)
-		}
-	}
-	bad := []Position{
-		{Lat: 91, Lon: 0},
-		{Lat: 0, Lon: -180.1},
-		{Lat: math.NaN(), Lon: 0},
-		{Lat: 0, Lon: 0, SpeedMps: f(-1)},
-		{Lat: 0, Lon: 0, HeadingDeg: f(400)},
-		{Lat: 0, Lon: 0, Ele: f(math.Inf(1))},
-		{Lat: 0, Lon: 0, RecordedAt: now.Add(10 * time.Minute)},
-		{Lat: 0, Lon: 0, RecordedAt: now.Add(-25 * time.Hour)},
-	}
-	for _, p := range bad {
-		if err := ValidatePosition(&p, now); err == nil {
-			t.Errorf("%+v: expected an error", p)
+	for name, bad := range map[string]Input{
+		"future":        {Date: str("2026-11-15")},
+		"format":        {Date: str("12.11.2026")},
+		"too old":       {Date: str("1850-01-01")},
+		"zero duration": {DurationS: num(0)},
+		"too long":      {DurationS: num(MaxDurationDays*86400 + 1)},
+	} {
+		if err := bad.validate(now); apperr.KindOf(err) != apperr.Invalid {
+			t.Errorf("%s: err = %v, want Invalid", name, err)
 		}
 	}
 }

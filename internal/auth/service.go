@@ -90,8 +90,6 @@ func (s *Service) Middleware(next echo.HandlerFunc) echo.HandlerFunc {
 }
 
 // Authenticate verifies an access token and returns its user and expiry.
-// Used directly by connections that can't send an Authorization header
-// (WebSockets).
 func (s *Service) Authenticate(ctx context.Context, token string) (userID string, expires time.Time, err error) {
 	claims, err := s.parseAccessToken(token)
 	if err != nil {

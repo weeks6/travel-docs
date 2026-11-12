@@ -219,6 +219,27 @@ func (f *File) StartTime() (time.Time, bool) {
 	return time.Time{}, false
 }
 
+// Duration returns the time between the first and the last timestamp in
+// the file, if it has at least two and they are in order.
+func (f *File) Duration() (time.Duration, bool) {
+	start, ok := f.StartTime()
+	if !ok {
+		return 0, false
+	}
+	var end time.Time
+	for _, s := range f.Segments {
+		for _, p := range s {
+			if !p.Time.IsZero() {
+				end = p.Time
+			}
+		}
+	}
+	if d := end.Sub(start); d > 0 {
+		return d, true
+	}
+	return 0, false
+}
+
 // FillElevation fills in missing elevations by linear interpolation between
 // the nearest known points (copying the nearest value at the ends), treating
 // all segments as one sequence. It reports whether the file has any

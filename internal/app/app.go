@@ -15,7 +15,6 @@ import (
 	"github.com/weeks6/travel-docs/internal/routes"
 	"github.com/weeks6/travel-docs/internal/routes/imports"
 	"github.com/weeks6/travel-docs/internal/server"
-	"github.com/weeks6/travel-docs/internal/trips"
 )
 
 // Deps are the external resources the application runs on.
@@ -53,11 +52,4 @@ func New(d Deps, cfg config.Config) (*App, error) {
 // jobs finish (or hands them back) and returns.
 func (a *App) RunWorkers(ctx context.Context) {
 	imports.NewRunner(a.deps.Pool, routes.NewStore(a.deps.Pool), a.deps.Broker, a.deps.Log, a.cfg.Jobs).Run(ctx)
-}
-
-// RunMaintenance applies the trip location retention policy and expires
-// stale presence until ctx is canceled.
-func (a *App) RunMaintenance(ctx context.Context) {
-	j := &trips.Janitor{Store: trips.NewStore(a.deps.Pool), Log: a.deps.Log.With("component", "trip_janitor")}
-	j.Run(ctx)
 }

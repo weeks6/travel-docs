@@ -162,8 +162,8 @@ func TestNATSAcrossInstances(t *testing.T) {
 	defer b2.Close()
 
 	for i := range 20 {
-		s := subscribe(t, b1, pubsub.TripTopic("x"))
-		if err := b2.Publish(context.Background(), pubsub.TripTopic("x"), []byte("hi")); err != nil {
+		s := subscribe(t, b1, pubsub.UserTopic("x"))
+		if err := b2.Publish(context.Background(), pubsub.UserTopic("x"), []byte("hi")); err != nil {
 			t.Fatal(err)
 		}
 		if got := receive(t, s); got != "hi" {

@@ -7,7 +7,6 @@ ignore ./frontend
 
 require (
 	github.com/Masterminds/squirrel v1.5.4
-	github.com/coder/websocket v1.8.15
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/jackc/pgx/v5 v5.12.0
 	github.com/labstack/echo/v5 v5.4.4

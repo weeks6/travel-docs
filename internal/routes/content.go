@@ -71,6 +71,10 @@ func BuildContent(f *gpx.File, filename, nameOverride string) (Content, error) {
 		t = t.UTC()
 		c.StartedAt = &t
 	}
+	if d, ok := f.Duration(); ok {
+		s := int(d.Seconds())
+		c.DurationS = &s
+	}
 	return c, nil
 }
 

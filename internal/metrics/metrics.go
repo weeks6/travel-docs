@@ -61,32 +61,6 @@ var (
 		Buckets: prometheus.ExponentialBuckets(16<<10, 4, 8), // 16 KiB … 256 MiB
 	})
 
-	// WSConnections is the number of open trip WebSocket connections.
-	WSConnections = promauto.NewGauge(prometheus.GaugeOpts{
-		Namespace: namespace, Name: "ws_connections",
-		Help: "Open trip WebSocket connections on this instance.",
-	})
-	WSMessagesReceived = promauto.NewCounterVec(prometheus.CounterOpts{
-		Namespace: namespace, Name: "ws_messages_received_total",
-		Help: "WebSocket messages received from clients by type.",
-	}, []string{"type"})
-	WSMessagesSent = promauto.NewCounter(prometheus.CounterOpts{
-		Namespace: namespace, Name: "ws_messages_sent_total",
-		Help: "WebSocket messages sent to clients.",
-	})
-	LocationUpdates = promauto.NewCounterVec(prometheus.CounterOpts{
-		Namespace: namespace, Name: "trip_location_updates_total",
-		Help: "Stored location points by source (ws or http).",
-	}, []string{"source"})
-	LocationsRejected = promauto.NewCounterVec(prometheus.CounterOpts{
-		Namespace: namespace, Name: "trip_location_rejected_total",
-		Help: "Rejected location updates by reason.",
-	}, []string{"reason"})
-	LocationsDeleted = promauto.NewCounter(prometheus.CounterOpts{
-		Namespace: namespace, Name: "trip_locations_deleted_total",
-		Help: "Location points deleted by the retention policy.",
-	})
-
 	PubSubPublished = promauto.NewCounter(prometheus.CounterOpts{
 		Namespace: namespace, Name: "pubsub_published_total",
 		Help: "Events published.",
@@ -101,7 +75,7 @@ var (
 	})
 )
 
-// streaming marks requests (SSE, WebSocket) whose duration is not a latency.
+// streaming marks requests (server-sent events) whose duration is not a latency.
 const streamingKey = "metrics.streaming"
 
 // MarkStreaming excludes the current request from the latency histogram.

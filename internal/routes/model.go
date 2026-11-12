@@ -41,10 +41,12 @@ type Route struct {
 	HasElevation     bool       `json:"has_elevation"`
 	PointCount       int        `json:"point_count"`
 	StartedAt        *time.Time `json:"started_at"`
-	Visibility       string     `json:"visibility"`
-	Version          int        `json:"version"`
-	OwnerID          string     `json:"owner_id"`
-	OwnerName        string     `json:"owner_name"`
+	// DurationS is how long the recorded track took, when it has timestamps.
+	DurationS  *int   `json:"duration_s"`
+	Visibility string `json:"visibility"`
+	Version    int    `json:"version"`
+	OwnerID    string `json:"owner_id"`
+	OwnerName  string `json:"owner_name"`
 	// MyRole is the requesting user's access: owner, editor or viewer.
 	MyRole    string    `json:"my_role"`
 	CreatedAt time.Time `json:"created_at"`
@@ -64,6 +66,7 @@ type Content struct {
 	HasElevation     bool
 	PointCount       int
 	StartedAt        *time.Time
+	DurationS        *int
 	// Geometry is a GeoJSON MultiLineString with [lon, lat, elevation]
 	// coordinates (elevation 0 when HasElevation is false).
 	Geometry json.RawMessage

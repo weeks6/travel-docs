@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/weeks6/travel-docs/internal/auth"
@@ -22,12 +21,11 @@ import (
 // Run opens the database and broker, serves the API and runs background
 // work until ctx is canceled, then shuts down gracefully:
 //
-//  1. stop accepting connections and end event streams and WebSockets, so
-//     clients reconnect to another instance;
+//  1. stop accepting connections and end event streams, so clients
+//     reconnect to another instance;
 //  2. let in-flight requests finish while import workers finish or hand
 //     back their jobs (they start stopping as soon as ctx ends);
-//  3. stop the remaining background work, then close the broker, database
-//     and tracing.
+//  3. close the broker, database and tracing.
 func Run(ctx context.Context, log *slog.Logger, cfg config.Config) error {
 	// Canceling ctx (a signal) starts the shutdown; stopServing ends it
 	// early when the server fails.
@@ -82,31 +80,25 @@ func Run(ctx context.Context, log *slog.Logger, cfg config.Config) error {
 	workersDone := make(chan struct{})
 	go func() { defer close(workersDone); a.RunWorkers(ctx) }()
 
-	// Other background work stops after the HTTP server has drained.
-	bgCtx, stopBackground := context.WithCancel(context.WithoutCancel(ctx))
-	defer stopBackground()
-	var background sync.WaitGroup
-	background.Go(func() { a.RunMaintenance(bgCtx) })
-
 	httpServer := &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           a.Handler,
 		ReadHeaderTimeout: 10 * time.Second,
-		// Large GPX uploads over slow connections. Event streams and
-		// WebSockets lift these deadlines for their connection.
+		// Large GPX uploads over slow connections. Event streams lift these
+		// deadlines for their connection.
 		ReadTimeout:    5 * time.Minute,
 		WriteTimeout:   6 * time.Minute,
 		IdleTimeout:    2 * time.Minute,
 		MaxHeaderBytes: 1 << 20,
 		ErrorLog:       slog.NewLogLogger(log.Handler(), slog.LevelWarn),
 	}
-	// Shutdown first closes the listeners, then runs this: open streams and
-	// WebSockets end so that clients reconnect to another instance.
+	// Shutdown first closes the listeners, then runs this: open event
+	// streams end so that clients reconnect to another instance.
 	httpServer.RegisterOnShutdown(func() {
 		cctx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 		defer cancel()
 		if err := a.Handler.CloseStreams(cctx); err != nil {
-			log.Warn("close websockets", "error", err)
+			log.Warn("close event streams", "error", err)
 		}
 	})
 
@@ -151,14 +143,12 @@ func Run(ctx context.Context, log *slog.Logger, cfg config.Config) error {
 		log.Warn("http shutdown incomplete", "error", err)
 	}
 	if err := a.Handler.CloseStreams(sctx); err != nil {
-		log.Warn("websockets still open at shutdown", "error", err)
+		log.Warn("event streams still open at shutdown", "error", err)
 	}
 	if metricsServer != nil {
 		metricsServer.Shutdown(sctx)
 	}
 	<-workersDone
-	stopBackground()
-	background.Wait()
 	log.Info("shutdown complete", "duration_ms", logging.Millis(time.Since(start)))
 	return nil
 }

@@ -6,8 +6,6 @@ DELETE /import-jobs/:id
 DELETE /routes/:id
 DELETE /routes/:id/shares/:user_id
 DELETE /trips/:id
-DELETE /trips/:id/invitations/:invitation_id
-DELETE /trips/:id/participants/:user_id
 GET /
 GET /audit-events
 GET /auth/me
@@ -25,13 +23,9 @@ GET /routes/:id/geometry
 GET /routes/:id/shares
 GET /routes/:id/versions
 GET /routes/:id/versions/:version/geometry
-GET /trip-invitations
 GET /trips
 GET /trips/:id
-GET /trips/:id/history
-GET /trips/:id/invitations
-GET /trips/:id/participants
-GET /trips/:id/ws
+GET /trips/stats
 PATCH /auth/me
 PATCH /collections/:id
 PATCH /routes/:id
@@ -47,13 +41,7 @@ POST /import-jobs/:id/cancel
 POST /import-jobs/:id/retry
 POST /routes
 POST /routes/:id/versions/:version/restore
-POST /trip-invitations/:id/accept
-POST /trip-invitations/:id/decline
 POST /trips
-POST /trips/:id/end
-POST /trips/:id/invitations
-POST /trips/:id/locations
-POST /trips/:id/start
 PUT /auth/me/password
 PUT /collections/:id/routes/:route_id
 PUT /collections/:id/shares

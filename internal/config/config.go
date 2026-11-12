@@ -87,12 +87,10 @@ func LoadFrom(getenv func(string) string) (Config, error) {
 		Retention:     p.duration("IMPORT_JOB_RETENTION", 7*24*time.Hour),
 	}
 	c.RateLimits = server.RateLimits{
-		PerSecond:          p.float("RATE_LIMIT_RPS", 20),
-		Burst:              p.int("RATE_LIMIT_BURST", 40),
-		AuthPerMinute:      p.float("RATE_LIMIT_AUTH_PER_MINUTE", 20),
-		AuthBurst:          p.int("RATE_LIMIT_AUTH_BURST", 10),
-		LocationsPerSecond: p.float("RATE_LIMIT_LOCATIONS_RPS", 2),
-		LocationsBurst:     p.int("RATE_LIMIT_LOCATIONS_BURST", 10),
+		PerSecond:     p.float("RATE_LIMIT_RPS", 20),
+		Burst:         p.int("RATE_LIMIT_BURST", 40),
+		AuthPerMinute: p.float("RATE_LIMIT_AUTH_PER_MINUTE", 20),
+		AuthBurst:     p.int("RATE_LIMIT_AUTH_BURST", 10),
 	}
 	return c, p.err
 }
