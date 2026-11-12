@@ -4,7 +4,8 @@
 # (`next dev` in frontend/).
 #
 # Usage: scripts/dev.sh [--seed] [--open] [--no-reload] [--no-web]
-#   --seed       create a demo account (demo@example.com / demo-password) with a sample route
+#   --seed       create a demo account (demo@example.com / demo-password) with sample routes
+#                (22 touring routes downloaded from github.com/gps-touring/sample-gpx, see cmd/seed)
 #   --open       open the web UI in your browser once everything is up
 #   --no-reload  build and run the API once, even if air is installed
 #   --no-web     run only the API
@@ -148,7 +149,13 @@ seed() {
     [[ "$code" == 201 ]] || { echo "  sample route upload failed (HTTP $code)" >&2; return 1; }
     log "Demo data ready: $DEMO_EMAIL with a public sample route"
   else
-    log "Demo account already has routes; nothing to add"
+    log "Demo account already has its sample loop"
+  fi
+
+  # Sample touring routes; only missing ones are downloaded and imported.
+  log "Seeding sample routes from github.com/gps-touring/sample-gpx…"
+  if ! go run ./cmd/seed -api "$BASE" -email "$DEMO_EMAIL" -password "$DEMO_PASSWORD" | sed 's/^/  /'; then
+    echo "  could not seed the sample routes (offline?); the app works without them" >&2
   fi
 }
 
