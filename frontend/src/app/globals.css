@@ -3,12 +3,13 @@
 @import "shadcn/tailwind.css";
 
 /*
- * Travel Docs design system: "dusk desert". Blush-sand surfaces, plum ink,
- * dusty rose as the primary color, golden sand (--sunset) for the one main
- * action of a screen, a soft dusk glow at the top of pages, a characterful
- * display face for headings and numbers, and topographic contour lines as
- * the recurring motif. Light and dark themes; by default the system setting
- * picks one (see lib/theme.ts).
+ * Travel Docs design system. Colors: porcelain, beige, palm leaf, carbon
+ * black and onyx (defined at the top of :root). Carbon is the primary color
+ * in the light theme and beige in the dark one; palm leaf (--sunset) marks
+ * the one main action of a screen, the route line and charts. Plus a soft
+ * glow at the top of pages, a characterful display face for headings and
+ * numbers, and topographic contour lines as the recurring motif. Light and
+ * dark themes; by default the system setting picks one (see lib/theme.ts).
  */
 
 /* Dark mode: the .dark class on <html>, set by lib/theme.ts from the
@@ -61,95 +62,99 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
-  --shadow-soft: 0 1px 2px oklch(0.3 0.06 340 / 6%), 0 8px 24px -12px oklch(0.3 0.06 340 / 20%);
+  --shadow-soft: 0 1px 2px rgb(18 17 19 / 6%), 0 8px 24px -12px rgb(18 17 19 / 18%);
 }
 
 :root {
   color-scheme: light;
   --radius: 0.8rem;
-  /* Blush sand, plum ink and dusty rose. */
-  --background: oklch(0.975 0.012 50);
-  --foreground: oklch(0.25 0.055 340);
-  --card: oklch(0.992 0.007 50);
-  --card-foreground: oklch(0.25 0.055 340);
-  --popover: oklch(0.992 0.007 50);
-  --popover-foreground: oklch(0.25 0.055 340);
-  --primary: oklch(0.54 0.115 2);
-  --primary-foreground: oklch(0.985 0.01 40);
-  --secondary: oklch(0.945 0.02 40);
-  --secondary-foreground: oklch(0.32 0.06 340);
-  --muted: oklch(0.952 0.016 45);
-  --muted-foreground: oklch(0.5 0.045 340);
-  --accent: oklch(0.93 0.035 10);
-  --accent-foreground: oklch(0.4 0.1 5);
-  --destructive: oklch(0.57 0.2 32);
-  --border: oklch(0.9 0.022 40);
-  --input: oklch(0.875 0.028 35);
-  --ring: oklch(0.6 0.11 2);
-  /* Golden sand for the main action of a screen; status colors. */
-  --sunset: oklch(0.8 0.12 78);
-  --sunset-foreground: oklch(0.26 0.06 340);
-  --success: oklch(0.52 0.09 150);
-  --warning: oklch(0.6 0.12 65);
-  /* Rose, sand, plum, sage, dusk blue. */
-  --chart-1: oklch(0.54 0.115 2);
-  --chart-2: oklch(0.8 0.12 78);
-  --chart-3: oklch(0.42 0.1 330);
-  --chart-4: oklch(0.62 0.08 150);
-  --chart-5: oklch(0.6 0.08 260);
-  --sidebar: oklch(0.965 0.015 45);
-  --sidebar-foreground: oklch(0.25 0.055 340);
-  --sidebar-primary: oklch(0.54 0.115 2);
-  --sidebar-primary-foreground: oklch(0.985 0.01 40);
-  --sidebar-accent: oklch(0.93 0.035 10);
-  --sidebar-accent-foreground: oklch(0.4 0.1 5);
-  --sidebar-border: oklch(0.9 0.022 40);
-  --sidebar-ring: oklch(0.6 0.11 2);
-  --topo-opacity: 0.1;
-  /* The glow of a desert dusk at the top of the page. */
-  --dusk: radial-gradient(120% 60% at 50% -10%, oklch(0.9 0.06 20 / 55%), transparent 70%);
+  /* The palette: porcelain, beige, palm leaf, carbon black and onyx. */
+  --porcelain: #f7f7f2;
+  --beige: #e4e6c3;
+  --palm-leaf: #899878;
+  --carbon-black: #222725;
+  --onyx: #121113;
+
+  --background: var(--porcelain);
+  --foreground: var(--carbon-black);
+  --card: #fcfcf8;
+  --card-foreground: var(--carbon-black);
+  --popover: #fcfcf8;
+  --popover-foreground: var(--carbon-black);
+  --primary: var(--carbon-black);
+  --primary-foreground: var(--porcelain);
+  --secondary: #eeefe0;
+  --secondary-foreground: var(--carbon-black);
+  --muted: #efefe7;
+  --muted-foreground: #5c6358;
+  --accent: var(--beige);
+  --accent-foreground: var(--carbon-black);
+  --destructive: #a8432f;
+  --border: #e1e2d4;
+  --input: #d3d6c2;
+  --ring: var(--palm-leaf);
+  /* Palm leaf for the main action of a screen (dark text: 4.9:1). */
+  --sunset: var(--palm-leaf);
+  --sunset-foreground: var(--carbon-black);
+  --success: #4f6b3c;
+  --warning: #8a6a1f;
+  --chart-1: #5f6f4f;
+  --chart-2: var(--palm-leaf);
+  --chart-3: var(--carbon-black);
+  --chart-4: var(--beige);
+  --chart-5: #8a6a1f;
+  --sidebar: #f1f1ea;
+  --sidebar-foreground: var(--carbon-black);
+  --sidebar-primary: var(--carbon-black);
+  --sidebar-primary-foreground: var(--porcelain);
+  --sidebar-accent: var(--beige);
+  --sidebar-accent-foreground: var(--carbon-black);
+  --sidebar-border: #e1e2d4;
+  --sidebar-ring: var(--palm-leaf);
+  --topo-opacity: 0.07;
+  /* A soft beige glow at the top of the page. */
+  --dusk: radial-gradient(120% 60% at 50% -10%, color-mix(in oklab, var(--beige) 70%, transparent), transparent 70%);
 }
 
 .dark {
   color-scheme: dark;
-  /* Desert night: plum black, rose and moonlit sand. */
-  --background: oklch(0.17 0.028 330);
-  --foreground: oklch(0.94 0.015 50);
-  --card: oklch(0.21 0.034 330);
-  --card-foreground: oklch(0.94 0.015 50);
-  --popover: oklch(0.23 0.036 330);
-  --popover-foreground: oklch(0.94 0.015 50);
-  --primary: oklch(0.77 0.09 8);
-  --primary-foreground: oklch(0.22 0.045 340);
-  --secondary: oklch(0.27 0.035 330);
-  --secondary-foreground: oklch(0.92 0.015 50);
-  --muted: oklch(0.25 0.03 330);
-  --muted-foreground: oklch(0.73 0.035 20);
-  --accent: oklch(0.31 0.055 350);
-  --accent-foreground: oklch(0.92 0.04 20);
-  --destructive: oklch(0.7 0.17 35);
-  --border: oklch(1 0 0 / 9%);
-  --input: oklch(1 0 0 / 14%);
-  --ring: oklch(0.72 0.09 8);
-  --sunset: oklch(0.83 0.11 80);
-  --sunset-foreground: oklch(0.22 0.045 340);
-  --success: oklch(0.76 0.09 150);
-  --warning: oklch(0.82 0.11 80);
-  --chart-1: oklch(0.77 0.09 8);
-  --chart-2: oklch(0.83 0.11 80);
-  --chart-3: oklch(0.7 0.1 330);
-  --chart-4: oklch(0.75 0.08 150);
-  --chart-5: oklch(0.72 0.08 260);
-  --sidebar: oklch(0.2 0.032 330);
-  --sidebar-foreground: oklch(0.94 0.015 50);
-  --sidebar-primary: oklch(0.77 0.09 8);
-  --sidebar-primary-foreground: oklch(0.22 0.045 340);
-  --sidebar-accent: oklch(0.31 0.055 350);
-  --sidebar-accent-foreground: oklch(0.92 0.04 20);
-  --sidebar-border: oklch(1 0 0 / 9%);
-  --sidebar-ring: oklch(0.72 0.09 8);
-  --topo-opacity: 0.13;
-  --dusk: radial-gradient(120% 60% at 50% -10%, oklch(0.32 0.08 345 / 60%), transparent 70%);
+  --background: var(--onyx);
+  --foreground: var(--porcelain);
+  --card: var(--carbon-black);
+  --card-foreground: var(--porcelain);
+  --popover: #272c2a;
+  --popover-foreground: var(--porcelain);
+  --primary: var(--beige);
+  --primary-foreground: var(--onyx);
+  --secondary: #2b302d;
+  --secondary-foreground: var(--porcelain);
+  --muted: #1c1d1e;
+  --muted-foreground: #a7ac9c;
+  --accent: #343b2f;
+  --accent-foreground: var(--beige);
+  --destructive: #e08a74;
+  --border: rgb(247 247 242 / 9%);
+  --input: rgb(247 247 242 / 14%);
+  --ring: var(--palm-leaf);
+  --sunset: var(--palm-leaf);
+  --sunset-foreground: var(--onyx);
+  --success: #a9bd8c;
+  --warning: #d7b862;
+  --chart-1: var(--palm-leaf);
+  --chart-2: var(--beige);
+  --chart-3: var(--porcelain);
+  --chart-4: #5f6f4f;
+  --chart-5: #d7b862;
+  --sidebar: #1a1b1c;
+  --sidebar-foreground: var(--porcelain);
+  --sidebar-primary: var(--beige);
+  --sidebar-primary-foreground: var(--onyx);
+  --sidebar-accent: #343b2f;
+  --sidebar-accent-foreground: var(--beige);
+  --sidebar-border: rgb(247 247 242 / 9%);
+  --sidebar-ring: var(--palm-leaf);
+  --topo-opacity: 0.1;
+  --dusk: radial-gradient(120% 60% at 50% -10%, color-mix(in oklab, var(--palm-leaf) 16%, transparent), transparent 70%);
 }
 
 @layer base {
@@ -231,13 +236,13 @@
   font: inherit;
   background: var(--muted);
 }
-/* Map tiles tinted toward the palette: a warm dusk wash by day, and a
-   plum night version of the light OpenStreetMap tiles. */
+/* Map tiles muted toward the palette's sage greys by day, and a night
+   version of the light OpenStreetMap tiles. */
 .leaflet-tile-pane {
-  filter: sepia(0.18) saturate(0.8) hue-rotate(-12deg);
+  filter: saturate(0.55) sepia(0.15) hue-rotate(20deg);
 }
 .dark .leaflet-tile-pane {
-  filter: invert(1) hue-rotate(180deg) sepia(0.35) hue-rotate(-40deg) saturate(0.55) brightness(0.78) contrast(0.95);
+  filter: invert(1) hue-rotate(180deg) saturate(0.35) brightness(0.75) contrast(0.95);
 }
 .leaflet-bar a {
   background: var(--card);
