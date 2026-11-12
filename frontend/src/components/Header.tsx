@@ -2,9 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Suspense, useCallback, useEffect, useState } from "react";
-import { invitationsApi, logout } from "@/lib/api";
-import { useUserEvents } from "@/lib/events";
+import { Suspense, useState } from "react";
+import { logout } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { LoginDialog } from "./account/LoginDialog";
 import { AccountDialog } from "./account/AccountDialog";
@@ -16,12 +15,12 @@ const links = [
   { href: "/trips", label: "Trips" },
 ];
 
-function NavLinks({ invitations }: { invitations: number }) {
+function NavLinks() {
   const pathname = usePathname();
-  return <NavLinksView active={pathname} invitations={invitations} />;
+  return <NavLinksView active={pathname} />;
 }
 
-function NavLinksView({ active, invitations }: { active: string | null; invitations: number }) {
+function NavLinksView({ active }: { active: string | null }) {
   return (
     <nav className="mainnav">
       {links.map((l) => {
@@ -29,11 +28,6 @@ function NavLinksView({ active, invitations }: { active: string | null; invitati
         return (
           <Link key={l.href} href={l.href} className={isActive ? "active" : undefined}>
             {l.label}
-            {l.href === "/trips" && invitations > 0 && (
-              <span className="count" title="Pending trip invitations">
-                {invitations}
-              </span>
-            )}
           </Link>
         );
       })}
@@ -44,28 +38,14 @@ function NavLinksView({ active, invitations }: { active: string | null; invitati
 export function Header() {
   const { user, ready } = useSession();
   const [dialog, setDialog] = useState<null | "login" | "register" | "account" | "activity">(null);
-  const [invitations, setInvitations] = useState(0);
-
-  const loadInvitations = useCallback(() => {
-    invitationsApi
-      .mine()
-      .then((res) => setInvitations(res.items.length))
-      .catch(() => undefined);
-  }, []);
-  useEffect(() => {
-    if (user) loadInvitations();
-  }, [user, loadInvitations]);
-  useUserEvents((ev) => {
-    if (ev.type === "invitation" || ev.type === "connected") loadInvitations();
-  });
 
   return (
     <header className="topbar">
       <Link href="/" className="brand">
         Travel Docs
       </Link>
-      <Suspense fallback={<NavLinksView active={null} invitations={0} />}>
-        <NavLinks invitations={user ? invitations : 0} />
+      <Suspense fallback={<NavLinksView active={null} />}>
+        <NavLinks />
       </Suspense>
       <div className="auth-area">
         {!ready ? null : user ? (

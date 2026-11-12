@@ -1,7 +1,7 @@
 "use client";
 
-// The user's live event stream (GET /events): import job progress and trip
-// invitations. Server-Sent Events need the Authorization header, so the
+// The user's live event stream (GET /events): import job progress.
+// Server-Sent Events need the Authorization header, so the
 // stream is read with fetch() instead of EventSource.
 
 import { createContext, useContext, useEffect, useRef, useState } from "react";

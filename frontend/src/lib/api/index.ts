@@ -5,5 +5,5 @@
 export * from "./client";
 export { ifMatch, query } from "./query";
 export { collectionsApi, routesApi, sharesApi, type CollectionQuery, type RouteQuery } from "./routes";
-export { invitationsApi, tripsApi } from "./trips";
+export { tripsApi, type TripFields, type TripFilter } from "./trips";
 export { auditApi, authApi, importsApi } from "./account";

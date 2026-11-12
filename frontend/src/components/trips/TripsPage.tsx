@@ -2,15 +2,15 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
-import { invitationsApi, tripsApi } from "@/lib/api";
-import { useUserEvents } from "@/lib/events";
-import { date, plural } from "@/lib/format";
+import { useEffect, useMemo, useState } from "react";
+import { tripsApi } from "@/lib/api";
+import { formatDuration } from "@/lib/duration";
+import { km, meters, plural } from "@/lib/format";
 import { useSession } from "@/lib/session";
-import type { Invitation, Page, Trip } from "@/lib/types";
+import type { Page, Trip, TripStats } from "@/lib/types";
 import { LoginPrompt } from "../account/LoginDialog";
-import { Msg, Pager, errorMessage, useAction } from "../ui";
-import { statusLabels, TripFormDialog } from "./TripFormDialog";
+import { Pager, errorMessage } from "../ui";
+import { TripFormDialog } from "./TripFormDialog";
 
 export function TripsPage() {
   const { user, ready } = useSession();
@@ -19,160 +19,138 @@ export function TripsPage() {
     return (
       <div className="page">
         <h1>Trips</h1>
-        <LoginPrompt text="Log in to plan group trips and share your location live with your group." />
+        <LoginPrompt text="Log in to keep a log of your trips: which route, when, and how long it took." />
       </div>
     );
   }
   return <Trips key={user.id} />;
 }
 
+/** Long dates for the list, e.g. "Sat, 1 May 2026" (dates are local calendar days). */
+export function tripDate(d: string): string {
+  const [y, m, day] = d.split("-").map(Number);
+  return new Date(y, m - 1, day).toLocaleDateString(undefined, {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+export function StatsRow({ stats }: { stats: TripStats | null }) {
+  if (!stats || stats.trips === 0) return null;
+  return (
+    <div className="stats">
+      {(
+        [
+          [stats.trips === 1 ? "Trip" : "Trips", String(stats.trips)],
+          ["Time on the trail", formatDuration(stats.duration_s)],
+          ["Distance", km(stats.distance_m)],
+          ["Ascent", meters(stats.ascent_m)],
+        ] as const
+      ).map(([label, value]) => (
+        <div className="stat" key={label}>
+          <div className="v">{value}</div>
+          <div className="l">{label}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Trips() {
   const router = useRouter();
-  const [status, setStatus] = useState("");
+  const [year, setYear] = useState(0); // 0 = all years
   const [page, setPage] = useState(1);
   const [res, setRes] = useState<Page<Trip> | null>(null);
-  const [invitations, setInvitations] = useState<Invitation[]>([]);
+  const [stats, setStats] = useState<TripStats | null>(null);
+  const [overall, setOverall] = useState<TripStats | null>(null); // all years, for the year picker
   const [error, setError] = useState("");
-  const [reloadKey, setReloadKey] = useState(0);
-  const [creating, setCreating] = useState(false);
-  const reload = useCallback(() => setReloadKey((k) => k + 1), []);
+  const [logging, setLogging] = useState(false);
 
   useEffect(() => {
     let active = true;
-    Promise.all([
-      tripsApi.list({ page, page_size: 20, status }),
-      invitationsApi.mine(),
-    ])
-      .then(([trips, inv]) => {
+    const filter = { year: year || undefined };
+    Promise.all([tripsApi.list({ ...filter, page, page_size: 20 }), tripsApi.stats(filter), tripsApi.stats()])
+      .then(([list, st, all]) => {
         if (!active) return;
-        setRes(trips);
-        setInvitations(inv.items);
+        setRes(list);
+        setStats(st);
+        setOverall(all);
         setError("");
       })
       .catch((e) => active && setError(errorMessage(e)));
     return () => {
       active = false;
     };
-  }, [status, page, reloadKey]);
+  }, [year, page]);
 
-  useUserEvents((ev) => {
-    if (ev.type === "invitation" || ev.type === "connected") reload();
-  });
+  const years = useMemo(() => {
+    if (!overall?.first_date || !overall.last_date) return [];
+    const first = Number(overall.first_date.slice(0, 4));
+    const last = Number(overall.last_date.slice(0, 4));
+    return Array.from({ length: last - first + 1 }, (_, i) => last - i);
+  }, [overall]);
 
   return (
     <div className="page">
       <div className="page-head">
         <h1>Trips</h1>
-        <button type="button" className="primary" onClick={() => setCreating(true)}>
-          New trip
+        <button type="button" className="primary" onClick={() => setLogging(true)}>
+          Log a trip
         </button>
       </div>
-      <p className="meta">
-        Plan a trip, invite your group, and while it runs everyone sees each other on the map in real time.
-      </p>
+      <p className="meta">Your log of the routes you went on: when, and how long it took.</p>
       {error && <p className="msg error">{error}</p>}
-
-      {invitations.length > 0 && (
-        <section className="card">
-          <h3>Invitations</h3>
-          {invitations.map((inv) => (
-            <InvitationRow key={inv.id} inv={inv} onAccepted={() => router.push(`/trips/${inv.trip_id}`)} onChanged={reload} />
-          ))}
-        </section>
-      )}
 
       <div className="row toolbar">
         <select
-          value={status}
+          aria-label="Year"
+          value={year}
           onChange={(e) => {
             setPage(1);
-            setStatus(e.target.value);
+            setYear(Number(e.target.value));
           }}
         >
-          <option value="">All trips</option>
-          <option value="active">Live now</option>
-          <option value="planned">Planned</option>
-          <option value="ended">Ended</option>
+          <option value={0}>All years</option>
+          {years.map((y) => (
+            <option key={y} value={y}>
+              {y}
+            </option>
+          ))}
         </select>
       </div>
+      <StatsRow stats={stats} />
+
       <ul className="list cards">
         {res?.items.map((t) => (
           <li key={t.id}>
             <Link href={`/trips/${t.id}`} className="trip-link">
-              <div className="name">
-                {t.name}
-                <span className={"badge status-" + t.status}>{statusLabels[t.status]}</span>
-                {t.my_role !== "owner" && <span className="badge role">member</span>}
-              </div>
+              <div className="name">{t.name}</div>
               <div className="meta">
-                {plural(t.participant_count, "participant")}
-                {t.my_role !== "owner" && ` · by ${t.owner_name}`}
-                {t.route_name && ` · route: ${t.route_name}`}
-                {" · "}
-                {t.status === "active" && t.started_at
-                  ? `started ${date(t.started_at)}`
-                  : t.status === "ended" && t.ended_at
-                    ? `ended ${date(t.ended_at)}`
-                    : `created ${date(t.created_at)}`}
+                {tripDate(t.date)} · {formatDuration(t.duration_s)} · {km(t.distance_m)}
+                {t.route_name && t.route_name !== t.name && ` · ${t.route_name}`}
               </div>
             </Link>
           </li>
         ))}
-        {res && res.items.length === 0 && <div className="empty">No trips here yet.</div>}
+        {res && res.items.length === 0 && (
+          <div className="empty">
+            {year ? `No trips in ${year}.` : "No trips yet. Log one from a GPX file or one of your routes."}
+          </div>
+        )}
       </ul>
+      {res && res.total > 0 && <p className="meta">{plural(res.total, "trip")}</p>}
       <Pager res={res} onPage={setPage} />
-      {creating && (
+      {logging && (
         <TripFormDialog
-          trip={null}
-          onClose={() => setCreating(false)}
+          onClose={() => setLogging(false)}
           onSaved={(t) => {
-            setCreating(false);
+            setLogging(false);
             router.push(`/trips/${t.id}`);
           }}
         />
       )}
-    </div>
-  );
-}
-
-function InvitationRow({ inv, onAccepted, onChanged }: { inv: Invitation; onAccepted: () => void; onChanged: () => void }) {
-  const { pending, msg, run } = useAction();
-  return (
-    <div className="invitation">
-      <div>
-        <strong>{inv.trip_name}</strong>
-        <div className="meta">
-          {inv.invited_by_name || "Someone"} invited you · {date(inv.created_at)} · {statusLabels[inv.trip_status]}
-        </div>
-        <Msg msg={msg} />
-      </div>
-      <div className="actions">
-        <button
-          type="button"
-          className="primary"
-          disabled={pending}
-          onClick={() =>
-            run(async () => {
-              await invitationsApi.accept(inv.id);
-              onAccepted();
-            })
-          }
-        >
-          Join
-        </button>
-        <button
-          type="button"
-          disabled={pending}
-          onClick={() =>
-            run(async () => {
-              await invitationsApi.decline(inv.id);
-              onChanged();
-            })
-          }
-        >
-          Decline
-        </button>
-      </div>
     </div>
   );
 }

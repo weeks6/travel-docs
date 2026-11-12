@@ -1,15 +1,18 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ApiError, collectionsApi, routesApi } from "@/lib/api";
+import { formatDuration } from "@/lib/duration";
 import { date, dateTime, km, meters } from "@/lib/format";
 import type { Collection, ProfilePoint, Route, RouteVersion, User } from "@/lib/types";
 import { ElevationChart } from "../ElevationChart";
 import { ImportForm } from "../ImportForm";
 import { SharesDialog } from "../SharesDialog";
+import { TripFormDialog } from "../trips/TripFormDialog";
 import { ConfirmButton, Field, Modal, Msg, RoleBadge, VisibilityBadge, errorMessage, useAction } from "../ui";
 
-type Dialog = null | "edit" | "version" | "history" | "share" | "collect";
+type Dialog = null | "edit" | "version" | "history" | "share" | "collect" | "trip";
 
 /** Details of the selected route with its actions. */
 export function RouteDetails({
@@ -32,6 +35,7 @@ export function RouteDetails({
   onPreview: (feature: GeoJSON.Feature) => void;
 }) {
   const [dialog, setDialog] = useState<Dialog>(null);
+  const router = useRouter();
   const r = route;
   const canEdit = r.my_role === "owner" || r.my_role === "editor";
   const isOwner = r.my_role === "owner";
@@ -67,6 +71,11 @@ export function RouteDetails({
           {isOwner && (
             <button type="button" onClick={() => setDialog("share")}>
               Share
+            </button>
+          )}
+          {user && (
+            <button type="button" onClick={() => setDialog("trip")}>
+              Log trip
             </button>
           )}
           {user && (
@@ -108,6 +117,7 @@ export function RouteDetails({
             ["Min elevation", meters(r.min_elevation_m)],
             ["Max elevation", meters(r.max_elevation_m)],
             ["Points", r.point_count.toLocaleString()],
+            ...(r.duration_s ? ([["Recorded time", formatDuration(r.duration_s)]] as const) : []),
           ] as const
         ).map(([label, value]) => (
           <div className="stat" key={label}>
@@ -150,6 +160,9 @@ export function RouteDetails({
         />
       )}
       {dialog === "share" && <SharesDialog kind="route" item={r} onClose={close} />}
+      {dialog === "trip" && (
+        <TripFormDialog routeId={r.id} onClose={close} onSaved={(t) => router.push(`/trips/${t.id}`)} />
+      )}
       {dialog === "collect" && <AddToCollectionDialog route={r} onClose={close} />}
     </div>
   );

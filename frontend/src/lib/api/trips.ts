@@ -1,34 +1,32 @@
-import type { Invitation, Page, Participant, Trip } from "../types";
+import type { Page, Trip, TripStats } from "../types";
 import { api } from "./client";
 import { query, seg } from "./query";
 
 const t = (id: string) => `/trips/${seg(id)}`;
 
-export const tripsApi = {
-  list: (q: { page?: number; page_size?: number; status?: string /* planned, active, ended; "" = all */ } = {}) =>
-    api<Page<Trip>>("/trips" + query(q)),
-  get: (id: string) => api<Trip>(t(id)),
-  create: (fields: Record<string, unknown>) => api<Trip>("/trips", { method: "POST", json: fields }),
-  update: (id: string, fields: Record<string, unknown>) => api<Trip>(t(id), { method: "PATCH", json: fields }),
-  remove: (id: string) => api<null>(t(id), { method: "DELETE" }),
-  start: (id: string) => api<Trip>(t(id) + "/start", { method: "POST" }),
-  end: (id: string) => api<Trip>(t(id) + "/end", { method: "POST" }),
-  participants: (id: string) => api<{ items: Participant[] }>(t(id) + "/participants"),
-  /** Removes a participant; with your own ID, leaves the trip. */
-  removeParticipant: (id: string, userId: string) =>
-    api<null>(`${t(id)}/participants/${seg(userId)}`, { method: "DELETE" }),
-  /** The location history as one feature per participant. */
-  history: (id: string) => api<GeoJSON.FeatureCollection>(t(id) + "/history"),
-  invitations: (id: string) => api<{ items: Invitation[] }>(t(id) + "/invitations"),
-  invite: (id: string, email: string) =>
-    api<Invitation>(t(id) + "/invitations", { method: "POST", json: { email } }),
-  revokeInvitation: (id: string, invitationId: string) =>
-    api<null>(`${t(id)}/invitations/${seg(invitationId)}`, { method: "DELETE" }),
-};
+/** Filters of GET /trips and /trips/stats. */
+export interface TripFilter {
+  year?: number;
+  route_id?: string;
+}
 
-export const invitationsApi = {
-  /** The current user's invitations (pending ones by default). */
-  mine: () => api<{ items: Invitation[] }>("/trip-invitations"),
-  accept: (id: string) => api<Invitation>(`/trip-invitations/${seg(id)}/accept`, { method: "POST" }),
-  decline: (id: string) => api<Invitation>(`/trip-invitations/${seg(id)}/decline`, { method: "POST" }),
+/** Fields of a trip; omitted ones default to the route's recording. */
+export interface TripFields {
+  name?: string;
+  notes?: string;
+  date?: string; // YYYY-MM-DD
+  duration_s?: number;
+}
+
+export const tripsApi = {
+  list: (q: TripFilter & { page?: number; page_size?: number } = {}) => api<Page<Trip>>("/trips" + query({ ...q })),
+  stats: (q: TripFilter = {}) => api<TripStats>("/trips/stats" + query({ ...q })),
+  get: (id: string) => api<Trip>(t(id)),
+  /** Logs a trip on a route you can see. */
+  create: (routeId: string, fields: TripFields) =>
+    api<Trip>("/trips", { method: "POST", json: { route_id: routeId, ...fields } }),
+  /** Logs a trip with a GPX file ("file" plus TripFields and "visibility"); the file becomes a new route. */
+  upload: (form: FormData) => api<Trip>("/trips", { method: "POST", body: form }),
+  update: (id: string, fields: TripFields) => api<Trip>(t(id), { method: "PATCH", json: fields }),
+  remove: (id: string) => api<null>(t(id), { method: "DELETE" }),
 };

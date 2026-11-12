@@ -38,6 +38,7 @@ export interface Route {
   has_elevation: boolean;
   point_count: number;
   started_at: string | null;
+  duration_s: number | null; // recorded track duration, when the file has timestamps
   visibility: Visibility;
   version: number;
   owner_id: string;
@@ -125,76 +126,31 @@ export interface ImportJob {
   finished_at: string | null;
 }
 
-export type TripStatus = "planned" | "active" | "ended";
-
+// A trip: a route you went on, when and for how long (private to you).
 export interface Trip {
   id: string;
   name: string;
-  description: string;
-  status: TripStatus;
-  route_id: string | null;
+  notes: string;
+  date: string; // YYYY-MM-DD
+  duration_s: number;
+  distance_m: number; // the route's, when the trip was logged
+  ascent_m: number;
+  route_id: string | null; // null once the route is deleted or hidden from you
   route_name: string | null;
-  location_retention_days: number;
-  owner_id: string;
-  owner_name: string;
-  my_role: "owner" | "member";
-  participant_count: number;
-  started_at: string | null;
-  ended_at: string | null;
   created_at: string;
   updated_at: string;
 }
 
-export interface Position {
-  lat: number;
-  lon: number;
-  ele?: number;
-  accuracy_m?: number;
-  speed_mps?: number;
-  heading_deg?: number;
-  recorded_at: string;
-}
-
-export interface Participant {
-  user_id: string;
-  display_name: string;
-  role: "owner" | "member";
-  joined_at: string;
-  online: boolean;
-  last_seen_at: string | null;
-  last_position: Position | null;
-}
-
-export interface Invitation {
-  id: string;
-  trip_id: string;
-  trip_name: string;
-  trip_status: TripStatus;
-  invitee_id: string;
-  invitee_name: string;
-  invitee_email?: string;
-  invited_by_id: string | null;
-  invited_by_name: string | null;
-  status: "pending" | "accepted" | "declined" | "revoked";
-  created_at: string;
-  responded_at: string | null;
+export interface TripStats {
+  trips: number;
+  duration_s: number;
+  distance_m: number;
+  ascent_m: number;
+  first_date: string | null;
+  last_date: string | null;
 }
 
 // Events on the user's event stream (GET /events).
 export type UserEvent =
   | { type: "job"; job: ImportJob }
-  | { type: "invitation"; invitation: Invitation }
   | { type: "connected" }; // (re)connected: reload state that may be stale
-
-// Messages from a trip's WebSocket (GET /trips/{id}/ws). The event types
-// match trips.Event* on the server.
-export type TripMessage =
-  | { type: "ready"; user_id: string; trip: Trip; participants: Participant[] }
-  | ({ type: "location"; user_id: string } & Position)
-  | { type: "presence"; user_id: string; online: boolean; at: string }
-  | { type: "trip" } // details or status changed: reload the trip
-  | { type: "participants" } // reload the participants
-  | { type: "removed"; user_id: string } // left or was removed
-  | { type: "deleted" }
-  | { type: "error"; error: string; code?: string }
-  | { type: "pong" };

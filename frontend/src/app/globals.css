@@ -67,17 +67,6 @@ a {
   background: var(--sel);
   color: var(--accent);
 }
-.count {
-  display: inline-block;
-  min-width: 18px;
-  margin-left: 6px;
-  padding: 0 5px;
-  border-radius: 9px;
-  background: var(--danger);
-  color: #fff;
-  font-size: 11px;
-  text-align: center;
-}
 .auth-area {
   display: flex;
   align-items: center;
@@ -308,32 +297,9 @@ label.field select {
   padding: 12px 16px;
   color: inherit;
 }
-.list.participants li {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  padding: 8px 0;
-  cursor: default;
-}
-.list.participants li:hover {
-  background: none;
-}
 .grow {
   flex: 1;
   min-width: 0;
-}
-.dot {
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  flex: none;
-}
-.online {
-  color: var(--ok);
-}
-.offline {
-  color: var(--muted);
 }
 .meta {
   color: var(--muted);
@@ -351,8 +317,7 @@ label.field select {
   vertical-align: 1px;
   font-weight: normal;
 }
-.badge.public,
-.badge.status-active {
+.badge.public {
   color: var(--ok);
   border-color: #bbf7d0;
   background: #f0fdf4;
@@ -361,11 +326,6 @@ label.field select {
   color: var(--warn);
   border-color: #fde68a;
   background: #fffbeb;
-}
-.badge.status-planned {
-  color: var(--accent);
-  border-color: #bfdbfe;
-  background: #eff6ff;
 }
 .empty {
   padding: 16px;
@@ -562,33 +522,6 @@ label.field select {
 .table.jobs {
   background: var(--panel);
   border: 1px solid var(--border);
-}
-
-/* Live connection indicator */
-.conn {
-  margin-top: 6px;
-  font-size: 12px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.conn .dot {
-  width: 8px;
-  height: 8px;
-  background: var(--muted);
-}
-.conn-live .dot {
-  background: var(--ok);
-}
-.conn-connecting .dot,
-.conn-reconnecting .dot {
-  background: #f59e0b;
-}
-.conn-closed {
-  color: var(--danger);
-}
-.conn-closed .dot {
-  background: var(--danger);
 }
 
 /* Dialogs */
