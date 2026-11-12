@@ -134,9 +134,9 @@ export function RoutesPanel({
     : [["public", "Public routes"]];
 
   return (
-    <div className="grid gap-4">
+    <div className="grid grid-cols-1 gap-4">
       {user ? (
-        <section className="grid gap-2">
+        <section className="grid grid-cols-1 gap-2">
           <h2 className="text-sm font-semibold">Add a route</h2>
           <ImportForm onSucceeded={(job) => onImported(job.route_id)} />
         </section>
@@ -145,7 +145,7 @@ export function RoutesPanel({
       )}
       <Separator />
       <form
-        className="grid gap-2"
+        className="grid grid-cols-1 gap-2"
         onSubmit={(e) => {
           e.preventDefault();
           const fd = new FormData(e.currentTarget);
@@ -202,13 +202,13 @@ export function RoutesPanel({
           </Button>
         </div>
       </form>
-      <div className="grid gap-1">
+      <div className="grid grid-cols-1 gap-1">
         {res && (
           <p className="px-1 text-xs text-muted-foreground">
             {res.total} {res.total === 1 ? "route" : "routes"}
           </p>
         )}
-        <ul className="grid gap-0.5">
+        <ul className="grid grid-cols-1 gap-0.5">
           {res?.items.map((r) => (
             <RouteItem key={r.id} r={r} selected={r.id === selectedId} onSelect={onSelect} />
           ))}

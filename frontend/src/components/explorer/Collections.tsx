@@ -84,7 +84,7 @@ export function CollectionsPanel({
       ]
     : [["public", "Public collections"]];
   return (
-    <div className="grid gap-4">
+    <div className="grid grid-cols-1 gap-4">
       <div className="flex gap-2">
         <NativeSelect
           aria-label="Show"
@@ -107,7 +107,7 @@ export function CollectionsPanel({
           </Button>
         )}
       </div>
-      <ul className="grid gap-0.5">
+      <ul className="grid grid-cols-1 gap-0.5">
         {res?.items.map((c) => (
           <li key={c.id}>
             <button
@@ -203,8 +203,8 @@ export function CollectionView({
 
   const canEdit = c.my_role === "owner" || c.my_role === "editor";
   return (
-    <div className="grid gap-4">
-      <div className="grid gap-2">
+    <div className="grid grid-cols-1 gap-4">
+      <div className="grid grid-cols-1 gap-2">
         <Button variant="ghost" size="sm" className="-ml-2 w-fit" onClick={onBack}>
           <ChevronLeft data-icon="inline-start" /> All collections
         </Button>
@@ -231,7 +231,7 @@ export function CollectionView({
         </div>
         {c.description && <p className="text-sm text-muted-foreground">{c.description}</p>}
       </div>
-      <ul className="grid gap-0.5">
+      <ul className="grid grid-cols-1 gap-0.5">
         {res?.items.map((r) => (
           <RouteItem key={r.id} r={r} selected={r.id === selectedId} onSelect={onSelect} />
         ))}
@@ -287,7 +287,7 @@ export function CollectionFormDialog({
   return (
     <Modal title={c ? "Edit collection" : "New collection"} onClose={onClose}>
       <form
-        className="grid gap-4"
+        className="grid grid-cols-1 gap-4"
         onSubmit={(e) => {
           e.preventDefault();
           const fd = Object.fromEntries(new FormData(e.currentTarget));
